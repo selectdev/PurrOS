@@ -131,7 +131,7 @@ Pay            PayRate (effective-dated history), Payslip (pushed in by a payrol
 Inventory      Item, ItemVariant, UnitOfMeasure, Warehouse, BinLocation, StockMovement, StockLevel, StockCount
 Purchasing     Supplier, PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine
 Sales          Customer, PriceList, SalesOrder, SalesOrderLine, Shipment, Invoice
-Platform       User, Role, Permission, ApiKey, Integration, IntegrationConfig, WebhookEndpoint, WebhookDelivery, OutboxEvent, AuditLog, IdempotencyRecord
+Platform       User, Role, RolePermission, UserLocationAssignment, UserDepartmentAssignment, ApiKey, Integration, IntegrationConfig, WebhookEndpoint, WebhookDelivery, OutboxEvent, AuditLog, IdempotencyRecord
 ```
 
 ### Stock ledger
@@ -316,13 +316,24 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 - **AuthN (people):** a single account system for all users, admins and employees alike. Sign-in methods: email + password (Argon2id), magic link (single use, 15 min), passkeys (WebAuthn), and SSO via OIDC or SAML 2.0 with optional SCIM provisioning. Admins enable methods per install and can require SSO.
 - **2FA:** optional for every user (TOTP or passkey, plus recovery codes). It is off by default, and an Owner can make it mandatory per role or company-wide.
 - **Sessions:** stored server-side (Postgres, cached in Redis) and linked by a secure `httpOnly`, `SameSite=Lax` cookie. Idle and absolute timeouts are configurable. Sessions are revoked on password change, and users can see and revoke their own sessions. Sign-in is rate-limited with temporary lockout.
-- **AuthN (software):** API keys for `/api/v1`, either integration keys (scoped at registration) or personal keys (allowed per role, never exceeding the owner's permissions). Keys can be given an expiry and can be rotated, and their last-used time and IP are shown.
-- **AuthZ:** RBAC with permissions like `people.read`, `time.approve`, `inventory.adjust`. Roles can be **scoped to locations/departments** (a manager sees only their team). Checks are enforced in services, not only in routes.
-- **Built-in roles:** Owner, Admin, HR Admin, Payroll Admin, Manager, Warehouse, Purchasing, Sales, Employee (self-service; the default for new accounts, Employee Area only), Read-only. Custom roles are supported.
+- **AuthN (software):** API keys for `/api/v1`, either integration keys (scoped at registration) or personal keys (requires `api_keys.personal`; they act with the creating user's role and reach, never more). Keys can be given an expiry and can be rotated, and their last-used time and IP are shown.
+- **AuthZ:** organization-defined roles on top of a fixed permission catalog (see §8.1). Checks are enforced in services, not only in routes.
 - **Audit log:** every mutating service call records actor (user, API key or integration), action, entity, before/after diff, IP, and request ID. The audit log is append-only.
 - **Data protection:** secrets and webhook signing keys are encrypted at rest with `PURROS_SECRET`-derived keys. Sensitive employee fields (national ID, bank details) are encrypted at the column level and masked in the UI and API unless the caller has explicit permission.
 - **Web security:** CSRF protection for Server Actions, strict CSP, rate-limited login, and Argon2id password hashing.
 - **Dependencies:** Renovate/Dependabot plus `pnpm audit` in CI.
+
+### 8.1 Roles & permissions model
+
+- **Permission catalog (code-defined).** Permissions are declared in code by each module as `<resource>.<action>` (`employees.read`, `employees.sensitive.read`, `pay.read`, `timesheets.approve`, `punches.correct`, `inventory.adjust`, `purchase_orders.approve`, `roles.manage`, `users.manage`, `integrations.manage`, `settings.manage`, `audit.read`, `api_keys.personal`, …). The catalog is versioned with the app. New permissions are never granted to existing roles automatically, except Owner. It is served at `GET /api/v1/permissions` with a description of each permission.
+- **Roles (data-defined).** A `Role` is a name, a description and a set of `RolePermission { permission, reach }` rows, where `reach ∈ { own_team, assigned_locations, assigned_departments, everyone }`. Organizations create whatever roles they need (HR, District Manager, Supervisor…). New installs get editable starter roles from a seed, not from code.
+- **Assignment.** Each `User` has exactly one `roleId`, plus `assignedLocationIds[]` and `assignedDepartmentIds[]`, which give the `assigned_*` reaches their concrete values. `own_team` is resolved from the reporting lines on the linked `Employee` (direct and indirect reports).
+- **System roles.** `Owner` has every permission, is immutable and undeletable, and at least one Owner must exist. `Employee` has no permissions, is the configurable default role, and cannot be deleted while it is the default.
+- **Self-access is not a permission.** A user linked to an `Employee` record can always use the Employee Area (`/me` routes) for their own data, whatever their role.
+- **Evaluation.** `can(ctx, permission, target?)` looks up the role's grant for that permission and checks the target against its reach. List queries use `scopeWhere(ctx, permission)`, which returns a Prisma `where` fragment so filtering happens in SQL rather than after loading. Resolved grants are cached in Redis per user and invalidated when the role or the assignment changes, so edits apply on the next request.
+- **Escalation guard.** Creating or editing a role, or assigning one to a user, requires `roles.manage` / `users.manage` **and** that every permission involved is held by the actor with an equal or wider reach. Granting `roles.manage` itself is Owner-only.
+- **Integration scopes** (`people:read`, `time:write`, …) are coarse API-key scopes for integrations and are separate from people's roles. Each scope maps to a fixed set of catalog permissions with reach `everyone`.
+- **Audit.** Role creation, edits, deletion and user role/assignment changes are audited with before/after diffs.
 
 ## 9. UI design system
 

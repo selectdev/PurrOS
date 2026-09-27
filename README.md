@@ -88,14 +88,47 @@ Admins choose which methods are enabled under **Settings → Authentication**.
 
 ### Roles and permissions
 
-Access is role-based. The built-in roles are Owner, Admin, HR Admin, Payroll Admin, Manager, Warehouse, Purchasing, Sales, Employee and Read-only, and you can create custom roles. Roles can be limited to specific **locations or departments**, so a store manager only sees their store. Every new account starts with the **Employee** role, which gives access to the Employee Area only.
+Every account has **one role**, and each organization defines its **own roles** to match how it is structured: HR, Payroll, District Manager, Store Manager, Supervisor, Warehouse Lead, or anything else. Each role carries its own set of **permissions**, so two roles never have to share the same access.
+
+**How roles work**
+
+- **Roles are yours.** Create, rename, edit and delete roles under **Settings → Roles**. PurrOS doesn't hard-code job titles.
+- **Permissions are fixed and fine-grained.** PurrOS defines the list of permissions (e.g. `employees.read`, `pay.read`, `timesheets.approve`, `inventory.adjust`, `purchase_orders.approve`, `roles.manage`), and a role is simply a chosen set of them. The full list is shown in the role editor and at `GET /api/v1/permissions`.
+- **Each permission has a reach.** When you add a permission to a role, you also choose how far it reaches:
+  - **Own team:** the person's direct and indirect reports
+  - **Assigned locations**
+  - **Assigned departments**
+  - **Everyone**
+
+  The account then says *which* locations or departments it covers. This lets one "District Manager" role serve every district, with each account assigned its own stores.
+- **Everyone keeps their Employee Area.** Any account linked to an employee record can always see its own data, whatever its role. Roles only add access to other people's data and to company operations.
+- **Two system roles.** **Owner** has every permission and can't be edited or deleted, and at least one Owner must exist. **Employee** is the default role for new accounts and has no extra permissions. You can choose a different default.
+
+**Example setup**
+
+| Role | Sample permissions | Reach |
+|---|---|---|
+| HR | `employees.read`, `employees.write`, `employees.sensitive.read`, `documents.manage`, `time_off.approve` | Everyone |
+| Payroll | `timesheets.read`, `pay_periods.lock`, `pay.read`, `pay.write`, `payroll.export` | Everyone |
+| District Manager | `employees.read`, `timesheets.approve`, `punches.correct`, `time_off.approve`, `inventory.read`, `reports.read` | Assigned locations |
+| Supervisor | `employees.read`, `timesheets.approve`, `time_off.approve` | Own team |
+| Warehouse Lead | `inventory.read`, `inventory.adjust`, `stock_counts.manage`, `goods_receipts.create` | Assigned locations |
+
+New installs start with a few roles like these as editable starting points. You can change or delete any of them.
+
+**Safeguards**
+
+- **No privilege escalation.** A user can only create or assign roles whose permissions they hold themselves, and only within their own reach. Only an Owner can grant `roles.manage`.
+- **Changes apply immediately.** Editing a role takes effect at the account's next request, with no need to sign out.
+- **Everything is audited.** Every change to roles, permissions and role assignments is written to the audit log, with the before and after state.
+- **Sensitive data needs explicit permission.** Pay, bank details and national IDs have their own permissions (`pay.read`, `employees.sensitive.read`). Seeing an employee's record doesn't include them.
 
 ### API authentication
 
 | Client | How it authenticates |
 |---|---|
 | **Integrations** | A scoped API key issued when the integration is registered (see [Integrations](#integrations)). Webhooks sent to the integration are signed with its own secret. |
-| **Scripts and personal tools** | Personal API keys that an admin can allow for chosen roles. A personal key can never have more access than the user who created it. |
+| **Scripts and personal tools** | Personal API keys, available to roles with the `api_keys.personal` permission. A personal key carries the same role permissions and reach as the user who created it, never more. |
 
 API keys are sent as `Authorization: Bearer <key>`. Only a hash is stored and the key is shown once. Keys can be given an expiry date, rotated or revoked at any time, and each key's last-used time and IP address are shown in the admin UI.
 

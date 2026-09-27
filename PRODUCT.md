@@ -100,7 +100,7 @@ Often a single in-house developer or an outside contractor. Deploys PurrOS and c
 - Works on phones as well as desktops. Employees see only their own data
 
 ### 5.7 Platform
-- Multi-user with role-based access control and location scoping
+- Organization-defined roles (e.g. HR, District Manager, Supervisor): each account has one role, and each role has its own set of permissions, each limited to own team, assigned locations, assigned departments or everyone
 - API keys with scopes, and signed webhooks with retries
 - Full audit log (who changed what, when, and from UI or API)
 - CSV import and export for every core entity
