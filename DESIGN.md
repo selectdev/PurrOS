@@ -18,7 +18,7 @@ This document covers how PurrOS is built: architecture, data model, API conventi
 |---|---|---|
 | Framework | **Next.js** (App Router) | Server Components for the UI, Route Handlers for `/api/v1` |
 | Language | **TypeScript** (strict) | `strict: true`, `noUncheckedIndexedAccess: true` |
-| Styling | **Tailwind CSS** | Design tokens via CSS variables (see §8) |
+| Styling | **Tailwind CSS** | Design tokens via CSS variables (see §9) |
 | UI primitives | Radix UI / shadcn/ui-style components | Accessible, unstyled primitives, owned in-repo |
 | ORM | **Prisma** | PostgreSQL provider; migrations in `prisma/migrations` |
 | Database | **PostgreSQL 16** | Source of truth |
@@ -34,24 +34,26 @@ This document covers how PurrOS is built: architecture, data model, API conventi
                 ┌────────────────────────────────────────────┐
   Browser ─────▶│                Next.js app                 │
                 │  ┌──────────────┐    ┌──────────────────┐  │
-                │  │ UI (RSC +    │    │ /api/v1 Route    │◀─┼──── Integrations
-                │  │ Server       │    │ Handlers         │  │     (HRIS, timeclocks,
-                │  │ Actions)     │    │ (API-key auth)   │  │      inventory tools)
-                │  └──────┬───────┘    └────────┬─────────┘  │
-                │         └──────────┬──────────┘            │
-                │           ┌────────▼────────┐              │
-                │           │ Domain services │              │
-                │           │ (src/modules/*) │              │
-                │           └───┬─────────┬───┘              │
-                └───────────────┼─────────┼──────────────────┘
-                                │         │ enqueue
-                       Prisma   │         ▼
-                         ┌──────▼───┐  ┌───────┐   ┌──────────────────┐
-                         │ Postgres │  │ Redis │◀─▶│ Worker (BullMQ)  │── webhooks out
-                         └──────────┘  └───────┘   │ imports, exports,│── connectors
-                                                   │ scheduled jobs   │
+                │  │ UI (RSC +    │    │ /api/v1 Route    │◀─┼──── REST calls ────┐
+                │  │ Server       │    │ Handlers         │  │                    │
+                │  │ Actions)     │    │ (API-key auth)   │  │           ┌────────┴─────────┐
+                │  └──────┬───────┘    └────────┬─────────┘  │           │ Plugins          │
+                │         └──────────┬──────────┘            │           │ (separate procs, │
+                │           ┌────────▼────────┐              │           │ custom-built:    │
+                │           │ Domain services │              │           │ HRIS, timeclock, │
+                │           │ (src/modules/*) │              │           │ inventory sync)  │
+                │           └───┬─────────┬───┘              │           └────────▲─────────┘
+                └───────────────┼─────────┼──────────────────┘                    │
+                                │         │ enqueue                               │
+                       Prisma   │         ▼                                       │
+                         ┌──────▼───┐  ┌───────┐   ┌──────────────────┐           │
+                         │ Postgres │  │ Redis │◀─▶│ Worker (BullMQ)  │── signed ─┘
+                         └──────────┘  └───────┘   │ webhooks, imports│   webhooks
+                                                   │ exports, cron    │
                                                    └──────────────────┘
 ```
+
+PurrOS has no code that talks to third-party products. Integrations are **plugins**: separate programs that call `/api/v1` and receive webhooks (see §7).
 
 ### Key rules
 
@@ -100,7 +102,11 @@ src/
   worker/
     index.ts
     jobs/
-connectors/               # first-party connectors (use public API contracts)
+packages/
+  sdk/                    # @purros/sdk — typed API client, webhook verification (published to npm)
+  plugin-template/        # starter repo for building a plugin
+examples/
+  plugins/                # small reference plugins (CSV timeclock bridge, webhook logger); not vendor integrations
 ```
 
 ## 4. Data model
@@ -123,7 +129,7 @@ Time           Punch, Shift, Timesheet, TimesheetEntry, PayPeriod, OvertimeRule,
 Inventory      Item, ItemVariant, UnitOfMeasure, Warehouse, BinLocation, StockMovement, StockLevel, StockCount
 Purchasing     Supplier, PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine
 Sales          Customer, PriceList, SalesOrder, SalesOrderLine, Shipment, Invoice
-Platform       User, Role, Permission, ApiKey, WebhookEndpoint, WebhookDelivery, OutboxEvent, AuditLog, IdempotencyRecord
+Platform       User, Role, Permission, ApiKey, Plugin, PluginConfig, WebhookEndpoint, WebhookDelivery, OutboxEvent, AuditLog, IdempotencyRecord
 ```
 
 ### Stock ledger
@@ -226,22 +232,94 @@ A Redis token bucket per API key, 600 requests/min by default and configurable. 
 2. The worker polls the outbox (or is nudged via Redis pub/sub), then fans out to:
    - webhook deliveries (`WebhookDelivery` rows plus a BullMQ job each)
    - internal subscribers (e.g. low-stock alerts, timesheet rebuild)
-   - connectors
 3. Outbox rows are marked dispatched once they are processed. This guarantees that no event is lost if Redis or the worker is down.
 
-BullMQ queues: `webhooks`, `imports`, `exports`, `connectors`, `scheduled` (cron-style jobs: ledger verification, reorder checks, document expiry reminders, data retention).
+BullMQ queues: `webhooks`, `imports`, `exports`, `scheduled` (cron-style jobs: ledger verification, reorder checks, document expiry reminders, data retention).
 
-## 7. Security
+## 7. Plugins
+
+PurrOS does not include integrations for specific vendors (HR platforms, timeclocks, stores, payroll providers). Each integration is a **custom plugin** that uses the public API. This keeps the core small and stable, and it means a plugin has no powers that an ordinary API client lacks.
+
+### What a plugin is
+
+- A **separate program** in any language, deployed however the owner likes: a container next to PurrOS, a serverless function, or a cron job.
+- It talks to PurrOS **only** through `/api/v1` (to read and write data) and webhooks (to be told about changes). It never touches the database, Redis or PurrOS internals.
+- PurrOS never runs plugin code. A broken plugin can fail its own requests, but it cannot crash, slow down or corrupt the ERP beyond what its API scopes allow.
+
+### Registration and the manifest
+
+An admin registers a plugin under **Settings → Plugins**, either by filling in a form or by uploading a manifest:
+
+```json
+{
+  "name": "acme-timeclock-bridge",
+  "displayName": "Acme Timeclock Bridge",
+  "version": "1.2.0",
+  "description": "Forwards punches from Acme terminals to PurrOS.",
+  "homepage": "https://github.com/example/acme-timeclock-bridge",
+  "scopes": ["people:read", "time:write"],
+  "webhooks": {
+    "url": "https://plugins.internal/acme-bridge/webhooks",
+    "events": ["employee.created", "employee.updated", "employee.archived"]
+  },
+  "config": [
+    { "key": "acmeBaseUrl", "type": "string", "required": true },
+    { "key": "acmeApiToken", "type": "secret", "required": true }
+  ]
+}
+```
+
+When the plugin is registered, PurrOS:
+
+1. Creates a `Plugin` record and an **API key restricted to the declared scopes**. The key is shown once.
+2. Creates the webhook subscription with its own signing secret.
+3. Stores the `config` values the admin enters, encrypting fields of type `secret`. The plugin reads them with `GET /api/v1/plugins/self/config`.
+4. Records the plugin as the actor on every change it makes, so the audit log shows "Acme Timeclock Bridge" rather than an anonymous key.
+
+Admins can pause a plugin (its key and webhooks stop working), rotate its credentials, see its recent API calls and webhook deliveries, and remove it.
+
+### Plugin data mapping
+
+Plugins keep IDs in sync with **`externalId`** (see §4) and the `PUT …/external/{externalId}` upsert endpoints, so most plugins need no state of their own. For more than one external ID per record, plugins can store namespaced metadata on records:
+
+```json
+"pluginData": { "acme-timeclock-bridge": { "badgeId": "00417" } }
+```
+
+Only the owning plugin can write its namespace. Any caller with read scope on the record can read it.
+
+### SDK and template
+
+- **`@purros/sdk`** (TypeScript, generated from the OpenAPI spec): typed client, automatic pagination, idempotency keys, retries on `429`/`5xx`, `verifyWebhook(req, secret)`, and typed event payloads.
+- **`packages/plugin-template`**: a minimal Node service with a webhook endpoint, a scheduled sync loop, a config loader and a Dockerfile.
+- **Examples** in `examples/plugins/`: a generic CSV/REST timeclock bridge and a webhook logger. These are teaching material, not supported integrations.
+
+Plugins in other languages use the OpenAPI spec with any client generator.
+
+### Plugin API surface
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/plugins/self` | The calling plugin's registration, scopes and status |
+| `GET /api/v1/plugins/self/config` | Admin-entered config values (secrets decrypted, over TLS only) |
+| `POST /api/v1/plugins/self/health` | Heartbeat and status message, shown in the admin UI |
+| `POST /api/v1/plugins/self/logs` | Optional sync summaries (e.g. "imported 42 punches") shown in the admin UI |
+
+### Compatibility
+
+Plugins depend only on `/api/v1`, so the API versioning policy (§5) is also the plugin compatibility policy. A plugin written against v1 keeps working across every PurrOS 1.x release.
+
+## 8. Security
 
 - **AuthN:** Auth.js sessions (secure, httpOnly cookies) for the UI. API keys for `/api/v1`. Optional OIDC SSO and TOTP 2FA for local accounts.
 - **AuthZ:** RBAC with permissions like `people.read`, `time.approve`, `inventory.adjust`. Roles can be **scoped to locations/departments** (a manager sees only their team). Checks are enforced in services, not only in routes.
 - **Built-in roles:** Owner, Admin, HR Admin, Payroll Admin, Manager, Warehouse, Purchasing, Sales, Employee (self-service), Read-only.
-- **Audit log:** every mutating service call records actor (user or API key), action, entity, before/after diff, IP, and request ID. The audit log is append-only.
+- **Audit log:** every mutating service call records actor (user, API key or plugin), action, entity, before/after diff, IP, and request ID. The audit log is append-only.
 - **Data protection:** secrets and webhook signing keys are encrypted at rest with `PURROS_SECRET`-derived keys. Sensitive employee fields (national ID, bank details) are encrypted at the column level and masked in the UI and API unless the caller has explicit permission.
 - **Web security:** CSRF protection for Server Actions, strict CSP, rate-limited login, and Argon2id password hashing.
 - **Dependencies:** Renovate/Dependabot plus `pnpm audit` in CI.
 
-## 8. UI design system
+## 9. UI design system
 
 ### Tone
 
@@ -289,14 +367,14 @@ Colours are defined as CSS variables and mapped in `tailwind.config.ts`, so ligh
 
 `DataTable` (server-side sort/filter/paginate, column chooser, saved views, CSV export) · `Form` (Zod-driven, inline validation) · `StatusBadge` · `QuantityInput` (UoM aware) · `MoneyDisplay` · `DateRangePicker` · `EmployeePicker` / `ItemPicker` (async search) · `ConfirmDialog` · `EmptyState` · `ActivityTimeline`.
 
-## 9. Performance
+## 10. Performance
 
 - Server Components render lists on the server, and client JS is limited to interactive parts.
 - Every list endpoint is paginated (max `limit=200`), with indexes on `(archivedAt, updatedAt)`, `externalId`, and all foreign keys.
 - Redis caches permission sets and reference data (units of measure, locations) with explicit invalidation on write.
 - Bulk ingestion uses `createMany` inside chunked transactions, and timesheet rebuilds are debounced per employee in the worker.
 
-## 10. Testing strategy
+## 11. Testing strategy
 
 | Layer | Tooling | What |
 |---|---|---|
@@ -307,7 +385,7 @@ Colours are defined as CSS variables and mapped in `tailwind.config.ts`, so ligh
 
 CI runs lint, typecheck, unit and integration tests, the OpenAPI breaking-change check, and a build on every PR.
 
-## 11. Operations
+## 12. Operations
 
 ### Configuration
 
@@ -334,7 +412,7 @@ Attachments go to the local filesystem (a Docker volume) by default, or to any S
 - `/api/health` (liveness) and `/api/ready` (DB and Redis reachable).
 - Optional OpenTelemetry traces and metrics export, plus a Prometheus endpoint for queue depth, webhook failure rate and request latency.
 
-## 12. Decisions log
+## 13. Decisions log
 
 | # | Decision | Rationale |
 |---|---|---|
@@ -345,3 +423,4 @@ Attachments go to the local filesystem (a Docker volume) by default, or to any S
 | 5 | Append-only stock ledger | Auditability, and stock can be reconstructed at any point in time |
 | 6 | Prefixed string IDs | Self-describing, sortable, safe to expose |
 | 7 | AGPL-3.0 | Keeps hosted forks open while allowing free self-hosting |
+| 8 | Integrations are out-of-process plugins using only the public API; no vendor integrations in core | Core stays small and stable, plugins can be written in any language, and a broken plugin can't take down the ERP |

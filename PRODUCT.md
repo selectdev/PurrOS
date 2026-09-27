@@ -60,7 +60,7 @@ Often a single in-house developer or an outside contractor. Deploys PurrOS and c
 - **Sync from external HR/employment software** by `externalId`, both one-way and bidirectional
 
 ### 5.2 Time & Attendance
-- Punch ingestion from any timeclock (API, CSV import, or a connector)
+- Punch ingestion from any timeclock (API, CSV import, or a custom plugin)
 - Shifts and schedules (basic weekly roster, not full workforce optimisation)
 - Automatic timesheet generation from punches, with detection of missed punches and exceptions
 - Configurable rules: rounding, breaks, daily and weekly overtime thresholds
@@ -112,20 +112,29 @@ These are left out on purpose. Integrate with a dedicated tool instead.
 
 ## 7. Integrations
 
-The integration story is what sets PurrOS apart. v1 ships three layers:
+The integration story is what sets PurrOS apart. **PurrOS ships no built-in integrations with third-party products.** Every integration is a custom **plugin**, written by the business, its integrator or the community, that talks to PurrOS only through the public API.
 
-1. **REST API + webhooks** (always available): covers the whole product, with a published OpenAPI spec.
-2. **Import/export templates**: CSV formats for common timeclock and HR exports.
-3. **First-party connectors** (priority to be set by community demand):
+What PurrOS provides:
 
-| Category | Example targets |
+1. **REST API + webhooks**: covers the whole product, with a published OpenAPI spec. This is the only way plugins talk to PurrOS.
+2. **Plugin registration**: an admin registers a plugin with a manifest that declares its name, the API scopes it needs and the webhook events it subscribes to. PurrOS issues the plugin its own scoped API key and webhook signing secret, and attributes its changes to it in the audit log.
+3. **TypeScript SDK and plugin template** (`@purros/sdk`): a typed API client generated from the OpenAPI spec, webhook signature verification, retry and pagination helpers, and a starter repository.
+4. **CSV import/export**: for one-off loads and for systems with no API at all.
+
+What PurrOS does **not** provide: official plugins for specific vendors. Because PurrOS doesn't have to track changes in dozens of vendor APIs, the core team can focus on a stable, well-documented API.
+
+Plugins run as **separate processes** (a container, a serverless function, a cron script), outside PurrOS. A plugin can crash, hang or be badly written without affecting the ERP, and it can use any language. TypeScript is only the path with the best tooling.
+
+Typical plugins someone might build:
+
+| Category | Example plugin |
 |---|---|
-| Employment / HR software | BambooHR, Personio, Gusto, Rippling, HiBob |
-| Timeclocks | Generic REST/CSV timeclocks, ZKTeco, Clockify, Deputy, Homebase |
-| Inventory / commerce | Shopify, WooCommerce, barcode scanner apps |
-| Payroll / accounting (export) | ADP, Paychex, QuickBooks, Xero |
+| Employment / HR software | Sync new hires and terminations from an HR platform into People |
+| Timeclocks | Forward punches from a timeclock device or app to `/time/punches:batch` |
+| Inventory / commerce | Push stock levels to an online store and create sales orders from its orders |
+| Payroll / accounting | Listen for `pay_period.locked` and send approved hours to a payroll provider |
 
-Connectors run inside the PurrOS worker and use only the public API, so anyone can build a connector.
+A community-maintained **plugin directory** (a list of links in the docs, not code in this repository) helps people find and share plugins.
 
 ## 8. Success metrics
 
@@ -138,7 +147,7 @@ Connectors run inside the PurrOS worker and use only the public API, so anyone c
 | p95 API latency (single-record reads, 500-employee dataset) | < 200 ms |
 | Upgrade success without manual DB intervention | 100% of minor releases |
 
-Community metrics (tracked, not targeted): GitHub stars, active installs (anonymous, opt-in telemetry only), external contributors, and community-built connectors.
+Community metrics (tracked, not targeted): GitHub stars, active installs (anonymous, opt-in telemetry only), external contributors, and community-built plugins listed in the directory.
 
 ## 9. Roadmap
 
@@ -148,13 +157,13 @@ Community metrics (tracked, not targeted): GitHub stars, active installs (anonym
 | **0.2 — Time** | Punch ingestion, timesheets, approvals, payroll CSV export |
 | **0.3 — Inventory** | Items, locations, stock ledger, adjustments, transfers, counts |
 | **0.4 — Purchasing & Sales** | Suppliers, POs, receipts, customers, SOs, fulfilment, invoices |
-| **0.5 — Connectors** | First HR, timeclock and commerce connectors; import templates |
+| **0.5 — Plugins** | Plugin registration and manifests, `@purros/sdk`, plugin starter template, example plugins, CSV import templates |
 | **1.0 — Stable** | API v1 frozen, upgrade guarantees, documentation complete |
-| **Post-1.0** | Manufacturing (BOM/work orders), plugin system, multi-company, advanced scheduling |
+| **Post-1.0** | Manufacturing (BOM/work orders), UI extension points for plugins, multi-company, advanced scheduling |
 
 ## 10. Open questions
 
-- Should the plugin/extension system land before 1.0 so that connectors can live outside core?
-- Which three connectors do we build first? This will be decided by a community poll.
+- Should plugins be able to add UI (settings pages, dashboard widgets) inside PurrOS, or stay API-only?
+- Which example plugins should ship with the SDK to show the common patterns (one-way sync, webhook listener, scheduled export)?
 - Is opt-in anonymous telemetry acceptable to the community for measuring adoption?
 - Do we offer a commercially supported / managed hosting option later, and how does that interact with AGPL?
