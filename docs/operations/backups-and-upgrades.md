@@ -13,7 +13,9 @@ Without `PURROS_SECRET`, encrypted fields in a restored database (integration se
 
 ## Database backups
 
-A nightly logical backup with `pg_dump`:
+The easiest option is PurrOS's built-in [scheduled backups to S3](../getting-started/email-and-storage.md#database-backups-to-s3-optional). Set `BACKUP_S3_ENABLED=true` and a bucket, and PurrOS uploads a compressed (and optionally encrypted) dump every night and deletes old ones.
+
+Or run your own nightly `pg_dump`:
 
 ```bash
 #!/usr/bin/env bash
@@ -30,13 +32,15 @@ Copy backups off the server (another region, object storage, or a backup service
 ## Attachment backups
 
 - **Local volume:** back up the volume directory with your usual tools (restic, borg, rsync).
-- **S3-compatible storage:** turn on bucket versioning and replication.
+- **S3-compatible storage:** turn on bucket versioning, and replicate to a second region or provider.
 
 ## Restoring
 
 ```bash
 docker compose stop app worker
 docker compose exec -T db pg_restore -U purros -d purros --clean --if-exists < /backups/purros-2026-09-27.dump
+# or, for a built-in S3 backup:
+# docker compose exec app npm run purros -- backup restore --from s3 --date 2026-09-27
 # restore the attachments volume or bucket to the same point in time
 docker compose start app worker
 docker compose exec app npm run purros -- doctor

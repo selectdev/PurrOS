@@ -39,7 +39,25 @@ POSTGRES_PASSWORD=CHANGE_ME
 
 `PURROS_SECRET` encrypts stored secrets and signs sessions. **Keep a copy of it somewhere safe.** If you lose it, encrypted data such as integration secrets and sensitive employee fields cannot be recovered.
 
-To send invitations and password-reset links, you'll also need email (SMTP) settings. See [Configuration](configuration.md) for every option.
+Recommended for production:
+
+```dotenv
+# Email (SMTP)
+SMTP_HOST=smtp.your-provider.example
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASSWORD=...
+SMTP_FROM="Acme Operations <ops@acme.example>"
+
+# File storage (S3-compatible)
+STORAGE_DRIVER=s3
+STORAGE_S3_BUCKET=acme-purros-files
+STORAGE_S3_REGION=eu-central-1
+STORAGE_S3_ACCESS_KEY_ID=...
+STORAGE_S3_SECRET_ACCESS_KEY=...
+```
+
+See [Email & file storage](email-and-storage.md) for setup and testing, and [Configuration](configuration.md) for every option.
 
 ## 3. Start the services
 
@@ -95,16 +113,17 @@ Open the link printed by `setup`, set up your sign-in method, and follow the [fi
 | `db` | PostgreSQL 16 | **Yes: back this up** |
 | `redis` | Redis 7: queues, cache, rate limits | No (can be rebuilt) |
 
-Attachments (documents, photos, receipts) are stored in a Docker volume by default, or in S3-compatible storage. See [Configuration → File storage](configuration.md#file-storage).
+Files (documents, photos, receipts, payslips, exports) are stored in a Docker volume by default, or in S3-compatible storage, which is recommended for production and required when running more than one `app` container. See [Email & file storage](email-and-storage.md#file-storage-s3).
 
 ## Scaling
 
-- **More users:** run several `app` containers behind the proxy. They are stateless.
+- **More users:** run several `app` containers behind the proxy. They are stateless when files are stored in S3.
 - **Heavy data feeds** (many POS terminals or online orders): run several `worker` containers. Jobs are distributed through Redis.
 - **Managed services:** you can use a managed PostgreSQL (16+) and Redis (7+) by pointing `DATABASE_URL` and `REDIS_URL` at them and removing `db` and `redis` from the Compose file.
 
 ## Next steps
 
 - [Configuration](configuration.md)
+- [Email & file storage](email-and-storage.md)
 - [First-run setup](first-run-setup.md)
 - [Backups & upgrades](../operations/backups-and-upgrades.md). Set up backups before going live.

@@ -23,16 +23,18 @@ docker compose up -d
 
 ## Email
 
-Email is needed for invitations, magic links, password resets, notifications and scheduled reports.
+PurrOS sends email through any SMTP server: invitations, sign-in links, notifications, scheduled reports, purchase orders and invoices.
 
-| Variable | Description |
-|---|---|
-| `SMTP_HOST`, `SMTP_PORT` | SMTP server and port (usually `587`). |
-| `SMTP_USER`, `SMTP_PASSWORD` | Credentials. |
-| `SMTP_SECURE` | `true` for implicit TLS (port 465). STARTTLS is used automatically on 587. |
-| `SMTP_FROM` | Sender, e.g. `PurrOS <erp@example.com>`. |
+| Variable | Default | Description |
+|---|---|---|
+| `SMTP_HOST`, `SMTP_PORT` | `587` | SMTP server and port |
+| `SMTP_SECURE` | `false` | `true` for implicit TLS (port 465) |
+| `SMTP_USER`, `SMTP_PASSWORD` | | Credentials |
+| `SMTP_FROM`, `SMTP_REPLY_TO` | | Sender and reply-to address |
+| `SMTP_REQUIRE_TLS`, `SMTP_TLS_REJECT_UNAUTHORIZED` | `true` | TLS requirements |
+| `SMTP_POOL_MAX`, `SMTP_RATE_PER_SECOND` | `5`, `10` | Connection pool and sending rate |
 
-Without SMTP, PurrOS still works, but invitation and sign-in links must be copied from the admin UI by hand.
+See [Email & file storage](email-and-storage.md#email-smtp) for what's sent, deliverability (SPF, DKIM, DMARC), testing and the delivery log.
 
 ## Single sign-on
 
@@ -48,14 +50,26 @@ The redirect URL to register with your identity provider is `PURROS_URL/api/auth
 
 ## File storage
 
+Files (documents, photos, receipts, payslips, exports) are stored on local disk or in any S3-compatible object storage.
+
 | Variable | Default | Description |
 |---|---|---|
-| `STORAGE_DRIVER` | `local` | `local` (Docker volume) or `s3`. |
-| `STORAGE_LOCAL_PATH` | `/data/files` | Path inside the container for `local`. |
-| `STORAGE_S3_ENDPOINT` | | Endpoint for S3-compatible services (MinIO, Backblaze, Wasabi…). Leave empty for AWS. |
-| `STORAGE_S3_REGION`, `STORAGE_S3_BUCKET` | | Region and bucket. |
-| `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY` | | Credentials. |
-| `STORAGE_MAX_UPLOAD_MB` | `25` | Maximum size of a single upload. |
+| `STORAGE_DRIVER` | `local` | `local` (Docker volume) or `s3` |
+| `STORAGE_LOCAL_PATH` | `/data/files` | Path inside the container for `local` |
+| `STORAGE_S3_BUCKET`, `STORAGE_S3_REGION` | | Bucket and region |
+| `STORAGE_S3_ENDPOINT` | | For non-AWS services (MinIO, R2, Backblaze, Wasabi…) |
+| `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY` | | Credentials (or an IAM role on AWS) |
+| `STORAGE_S3_FORCE_PATH_STYLE`, `STORAGE_S3_PREFIX` | `false`, | Path-style addressing, and a folder prefix inside the bucket |
+| `STORAGE_S3_SSE`, `STORAGE_S3_KMS_KEY_ID` | | Server-side encryption |
+| `STORAGE_S3_PROXY_UPLOADS` | `false` | Send uploads through the app instead of directly to the bucket |
+| `STORAGE_SIGNED_URL_TTL` | `300` | Seconds a download link stays valid |
+| `STORAGE_MAX_UPLOAD_MB` | `25` | Largest single upload |
+
+See [Email & file storage](email-and-storage.md#file-storage-s3) for bucket setup, IAM policy, CORS, a MinIO example and migrating from local disk to S3.
+
+## Backups to S3
+
+Optional scheduled database backups to an S3 bucket: `BACKUP_S3_ENABLED`, `BACKUP_S3_*`, `BACKUP_SCHEDULE`, `BACKUP_RETENTION_DAYS`, `BACKUP_ENCRYPTION_PASSPHRASE`. See [Database backups to S3](email-and-storage.md#database-backups-to-s3-optional).
 
 ## Notifications
 

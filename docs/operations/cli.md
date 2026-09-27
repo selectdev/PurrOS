@@ -64,6 +64,35 @@ npm run purros -- recalculate usage --location loc_01H… --from 2026-09-01 --to
 npm run purros -- recalculate kpis --from 2026-09-01
 ```
 
+### `email`
+
+```bash
+npm run purros -- email test --to you@example.com
+```
+
+Sends a test email and prints the SMTP conversation if it fails.
+
+### `storage`
+
+```bash
+npm run purros -- storage test                 # write, read, sign and delete a test file
+npm run purros -- storage init                 # create the bucket if it doesn't exist
+npm run purros -- storage migrate --to s3      # copy all files from local disk to S3 (resumable)
+npm run purros -- storage verify               # check every file record has a matching file and checksum
+```
+
+See [Email & file storage](../getting-started/email-and-storage.md).
+
+### `backup`
+
+```bash
+npm run purros -- backup run                           # back up the database to the backup bucket now
+npm run purros -- backup list
+npm run purros -- backup restore --from s3 --date 2026-09-27
+```
+
+Needs the `BACKUP_S3_*` settings. `restore` stops if the app and worker are still running, and asks for the encryption passphrase if backups are encrypted.
+
 ### `generate-vapid`
 
 Generates the key pair for web push notifications. Put the output in `.env`.

@@ -280,7 +280,7 @@ A Redis token bucket per API key, 600 requests/min by default and configurable. 
    - internal subscribers (e.g. low-stock alerts, timesheet rebuild)
 3. Outbox rows are marked dispatched once they are processed. This guarantees that no event is lost if Redis or the worker is down.
 
-BullMQ queues: `webhooks`, `imports`, `exports`, `scheduled` (cron-style jobs: ledger verification, reorder checks, document expiry reminders, data retention).
+BullMQ queues: `webhooks`, `email`, `imports`, `exports`, `backups`, `scheduled` (cron-style jobs: ledger verification, reorder checks, document expiry reminders, data retention).
 
 ## 7. Integrations
 
@@ -449,16 +449,20 @@ CI runs lint, typecheck, unit and integration tests, the OpenAPI breaking-change
 
 ### Configuration
 
-All configuration lives in environment variables (`PURROS_URL`, `PURROS_SECRET`, `DATABASE_URL`, `REDIS_URL`, `SMTP_*`, `OIDC_*`, `LOG_LEVEL`, `STORAGE_*`). The app refuses to start with an insecure default secret.
+All configuration lives in environment variables (`PURROS_URL`, `PURROS_SECRET`, `DATABASE_URL`, `REDIS_URL`, `SMTP_*`, `OIDC_*`, `LOG_LEVEL`, `STORAGE_*`, `BACKUP_*`). The app refuses to start with an insecure default secret.
 
 ### File storage
 
-Attachments go to the local filesystem (a Docker volume) by default, or to any S3-compatible store (MinIO, AWS S3, Backblaze).
+A `StorageDriver` interface with `local` (Docker volume) and `s3` (any S3-compatible service) implementations. The database stores only file metadata (key, type, size, SHA-256, owner, visibility). Buckets stay private: uploads use signed PUT URLs direct from the browser (or proxy through the app), and downloads are permission-checked, then redirected to short-lived signed GET URLs. Retention jobs delete files PurrOS no longer needs. `purros storage migrate` moves files between drivers with checksum verification. S3 is required to run more than one `app` instance.
+
+### Email
+
+Outgoing email uses SMTP only (any provider). Messages are rendered from templates in the recipient's language, queued in the `email` BullMQ queue, sent by the worker with pooling and rate limiting, and retried for 24 hours. A delivery log keeps recipient, subject, type and status, but not the body.
 
 ### Backups
 
 - Postgres is the only stateful service that must be backed up. Redis holds only queues and cache, which can be rebuilt from the outbox.
-- A documented `pg_dump` cron example is provided, plus backup of the attachments volume or bucket.
+- Built-in scheduled backups: the worker runs `pg_dump`, optionally encrypts the dump, uploads it to a separate S3 bucket (`BACKUP_S3_*`) and prunes old ones. A documented `pg_dump` cron example covers setups that use their own tooling. Files are backed up through bucket versioning and replication, or the volume.
 - `purros doctor` CLI: checks connectivity, pending migrations, ledger integrity and queue health.
 
 ### Migrations & upgrades

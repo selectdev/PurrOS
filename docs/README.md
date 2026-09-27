@@ -9,7 +9,8 @@ PurrOS is an open-source, self-hosted operations platform (ERP) for businesses w
 | I want to… | Read |
 |---|---|
 | Install PurrOS on my own server | [Installation](getting-started/installation.md) |
-| Configure email, SSO, storage | [Configuration](getting-started/configuration.md) |
+| Set up email (SMTP) and file storage (S3) | [Email & file storage](getting-started/email-and-storage.md) |
+| Configure SSO and other settings | [Configuration](getting-started/configuration.md) |
 | Set up my company after installing | [First-run setup](getting-started/first-run-setup.md) |
 | Understand the words PurrOS uses | [Key concepts](getting-started/concepts.md) |
 | Connect my POS, online store or timeclock | [Integrations](integrations/README.md) |
@@ -19,6 +20,7 @@ PurrOS is an open-source, self-hosted operations platform (ERP) for businesses w
 
 - [Installation](getting-started/installation.md): requirements, Docker Compose, reverse proxy, first admin
 - [Configuration](getting-started/configuration.md): every environment variable
+- [Email & file storage](getting-started/email-and-storage.md): SMTP, S3-compatible storage, backups to S3
 - [First-run setup](getting-started/first-run-setup.md): business type, features, locations, roles, inviting people
 - [Key concepts](getting-started/concepts.md): the terms used throughout PurrOS
 

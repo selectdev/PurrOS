@@ -56,7 +56,9 @@ Run them on demand with `npm run purros -- doctor`.
 |---|---|---|
 | Sign-in links go to the wrong address | `PURROS_URL` doesn't match the public URL | Correct it and restart |
 | Passkeys fail to register | Site not served over HTTPS, or `PURROS_URL` mismatch | Serve over HTTPS on the exact `PURROS_URL` host |
-| No emails | SMTP settings wrong | **Settings → System → Send test email** shows the SMTP error |
+| No emails | SMTP settings wrong | **Settings → System → Email → Send test email** or `purros email test` shows the SMTP error, and the delivery log shows failures |
+| Uploads fail, or photos don't load | S3 credentials, bucket permissions or CORS | `purros storage test` reports which step fails. See [bucket setup](../getting-started/email-and-storage.md#bucket-setup) |
+| Backup failed alert | Backup bucket unreachable or full | Check **Settings → System → Backups**, then `purros backup run`, which shows the error |
 | Dashboards lag behind the POS | Worker queue backed up | Check `purros_queue_waiting`, and add worker replicas |
 | Sales missing for a day | Integration down or sending the wrong location | Check integration health and the ingestion log, then have the integration re-send the day (safe, because it's idempotent) |
 | Many "unmapped items" | POS items not linked to PurrOS items | Resolve them in **Sales → Unmapped items**, or sync the catalog |

@@ -305,6 +305,7 @@ API keys are sent as `Authorization: Bearer <key>`. Only a hash is stored and th
 - **[Tailwind CSS](https://tailwindcss.com/)** for the UI
 - **[Prisma](https://www.prisma.io/)** ORM on **PostgreSQL**
 - **Redis** for background jobs (webhook delivery, imports, exports), caching and rate limiting
+- **SMTP** for email (any provider) and **S3-compatible object storage** for files (or a local volume)
 
 For the architecture, data model and API conventions, see [DESIGN.md](DESIGN.md).
 
@@ -338,7 +339,27 @@ PURROS_SECRET=change-me
 
 DATABASE_URL=postgresql://purros:purros@db:5432/purros
 REDIS_URL=redis://redis:6379
+
+# Email via any SMTP server (invitations, sign-in links, notifications, reports)
+SMTP_HOST=smtp.your-provider.example
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASSWORD=...
+SMTP_FROM="Acme Operations <ops@acme.example>"
+
+# File storage: "local" (Docker volume) or "s3" (AWS S3, MinIO, R2, Backblaze, Wasabi…)
+STORAGE_DRIVER=s3
+STORAGE_S3_BUCKET=acme-purros-files
+STORAGE_S3_REGION=eu-central-1
+STORAGE_S3_ENDPOINT=              # leave empty for AWS
+STORAGE_S3_ACCESS_KEY_ID=...
+STORAGE_S3_SECRET_ACCESS_KEY=...
+
+# Optional: nightly database backups to a separate S3 bucket
+BACKUP_S3_ENABLED=false
 ```
+
+Email and S3 are optional but recommended for production. See [Email & file storage](docs/getting-started/email-and-storage.md) for setup, testing and moving existing files to S3.
 
 ### 3. Start
 
