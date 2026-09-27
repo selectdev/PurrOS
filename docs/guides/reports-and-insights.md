@@ -73,8 +73,16 @@ Each recommendation explains **why** it was flagged using your own numbers, sugg
 
 | Endpoint | Scope |
 |---|---|
-| `GET /api/v1/reports/{reportKey}?groupBy=location&from=…&to=…` | `reports:read` |
-| `GET /api/v1/kpis?locationId=…&date=…` | `reports:read` |
-| `GET /api/v1/recommendations` | `reports:read` |
+| `GET /api/v1/kpis?from=…&to=…&locationId=…` | `reports:read` |
+| `GET /api/v1/reports` (the reports available with your features) | `reports:read` |
+| `GET /api/v1/reports/{key}?from=…&to=…&locationId=…&format=csv` | `reports:read` |
+| `GET /api/v1/recommendations?locationId=…` | `reports:read` |
+| `GET/POST /api/v1/alert-rules`, `PATCH/DELETE /api/v1/alert-rules/{id}` | `reports:read` / `reports:write` |
 
-Events: `alert.triggered`, `recommendation.created`.
+**KPIs** cover business dates `from`–`to` (inclusive, at most 366 days, default today). They include net sales (less tax and refunds), transactions, average ticket, labor hours and cost (from punches and pay rates, breaks excluded), labor %, sales per labor hour, over/short, waste cost, COGS and COGS %, forms submitted and failed, and current counts of open corrective actions, open work orders and low-stock items. A figure whose feature is switched off is left out of the response.
+
+**Built-in reports:** `sales-by-day`, `labor-by-day`, `location-ranking`, `over-short`, `waste-by-reason`, `variance` (stock count differences) and `stock-valuation` (current). A report whose feature is off returns 404.
+
+**Alert rules** watch one KPI (`kpi`, `comparator` `gt`/`lt`, `threshold`, optional `locationId`). The worker checks them every 5 minutes against today's figures (the location's time zone, or UTC for rules across all locations) and raises `alert.triggered` at most once per rule per day.
+
+Events: `alert.triggered`, `recommendation.created` (planned).

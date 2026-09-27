@@ -11,10 +11,10 @@ Point your load balancer or uptime monitor at `/api/ready`.
 
 ## Logs
 
-The app and worker write structured JSON logs to stdout, with `requestId` on every line:
+The API and its worker write structured JSON logs to stdout, with `requestId` on every request line:
 
 ```bash
-docker compose logs -f app worker
+docker compose logs -f api
 ```
 
 Set `LOG_LEVEL=debug` temporarily when investigating a problem. API errors return the same `requestId` in the `X-Request-Id` header and the error body, so you can find the matching log lines.

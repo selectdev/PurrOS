@@ -16,16 +16,25 @@ PurrOS is in early development. This is what the API does **today**:
 | Area | Implemented |
 |---|---|
 | **Platform** | API-key auth with scopes; feature switches (`404 feature_disabled`, instant across processes); RFC 9457 errors with field paths; cursor pagination; `Idempotency-Key`; per-key rate limits (in memory, or Redis); request IDs; audit log; security headers; `/api/health`, `/api/ready`; OpenAPI 3.1 at `/api/v1/openapi.json`, generated from the code and filtered by enabled features |
-| **Platform endpoints** | `GET /me`, `GET /features`, `GET /permissions`, `GET /integrations/self`, `GET /integrations/self/config`, `POST /integrations/self/health`, `POST /integrations/self/logs` |
-| **Organization** | `GET /org-units`, `GET /locations`, `GET /locations/{id}`, `GET /locations/external/{externalId}`, `GET /departments`. Business days respect each location's time zone and cut-off. |
-| **People** | Employees: list (filters, `updatedSince`), create, get, get by external ID, partial update with `If-Match`, upsert by external ID, `:terminate`, archive. Integrations can write only their own `integrationData` namespace. |
-| **Time** | `POST /time/punches:batch` (de-duplicated, per-record results), `GET /time/punches` |
-| **Sales feeds** | `POST /sales/transactions:batch` (idempotent on source + external ID, tender checks, item matching, unmapped-item queue), `GET /sales/transactions`, `POST/GET /sales-summaries`, `GET /sales/unmapped-items`, `POST /sales/unmapped-items:map` |
-| **Inventory** | Items: list, create, get, patch, get and upsert by external ID |
+| **Platform endpoints** | `/me`, `/features`, `/permissions`, integration self-service (`/integrations/self`, config, health, logs) |
+| **Organization** | Org units, locations (time zone and business-day cut-off), departments, roles with permissions, users with assignments (read-only) |
+| **People & HR** | Employees (upsert by external ID, `If-Match`, `:transfer`, `:terminate`, `:rehire`), documents, skills, pay rates, payslips |
+| **Time & Attendance** | Punch batches; labor rule sets; timesheets (`:build`, `:approve`, `:reject`) with overtime; pay periods (`:lock`, CSV export); time-off types, requests, balances and adjustments |
+| **Scheduling** | Demand drivers, forecasts and adjustments, staffing rules and needs, shifts with conflict checks, publishing, open-shift claims, swaps, availability |
+| **Inventory** | Items, stock ledger with weighted-average cost, levels and reorder points, adjustments, waste, counts, transfers, usage recipes (sales deplete stock) |
+| **Purchasing** | Suppliers and catalogs, suggested orders, purchase orders (approval limit, send, receive, cancel), supplier invoices with matching |
+| **Sales** | POS transaction and summary feeds (idempotent, unmapped-item queue), customers, sales orders (reserve, ship, cancel), invoices (PDF, pay, void) |
+| **Cash** | Tenders, card settlements, bank transactions with deposit matching, drawer counts with over/short, deposits, business-day close |
+| **Operations** | Forms and checklists with pass/fail rules, submissions, scored audits, corrective actions, sensors and readings with out-of-range events |
+| **Equipment** | Asset register, meter readings, preventive maintenance (by date or meter) that opens work orders, repair work orders |
+| **Communication** | Announcements with acknowledgments, calendar events, recognitions, display metrics |
+| **Reports & Insights** | KPIs, seven built-in reports (JSON or CSV), rule-based recommendations, KPI alert rules evaluated by the worker |
 | **Webhooks** | Transactional outbox; HMAC-SHA256 signed deliveries; per-record ordering; retries over ~3 days; endpoints auto-disabled after repeated failures; events of disabled features dropped |
 | **CLI** | `serve`, `worker`, `migrate`, `doctor`, `setup`, `locations create/list`, `integrations register/list`, `api-keys revoke`, `features list/enable/disable`, `version` |
 
-Everything else in the docs (sign-in for people, roles enforcement for personal keys, the web app, scheduling, cash, stock, purchasing, forms, equipment, communication, reports, email, S3 storage and backups) is planned.
+Every endpoint is listed in the [endpoint index](../docs/api/endpoints.md).
+
+Still planned: sign-in for people (passwords, SSO, passkeys) and personal API keys with role enforcement, the web app and Employee Area, messaging, email (SMTP), S3 file storage, scheduled and custom reports, the AI assistant, and backups.
 
 ## Quick start
 

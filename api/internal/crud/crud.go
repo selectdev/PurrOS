@@ -59,6 +59,8 @@ type Resource[Out any, In any] struct {
 	Defaults func(in *In)
 	// Check runs inside the transaction before insert (before == nil) or update.
 	Check func(c *httpx.Ctx, q db.Querier, in *In, before *Out) error
+	// AfterWrite runs inside the transaction after an insert (before == nil) or update.
+	AfterWrite func(c *httpx.Ctx, tx pgx.Tx, before, after *Out) error
 	// LocationOf returns the location to attach to events.
 	LocationOf func(o *Out) string
 
@@ -180,7 +182,13 @@ func (r *Resource[Out, In]) Insert(c *httpx.Ctx, tx pgx.Tx, in In) (Out, error) 
 	if err != nil {
 		return out, r.mapError(err)
 	}
-	return out, r.record(c, tx, "create", r.CreatedEvent, nil, &out)
+	if err := r.record(c, tx, "create", r.CreatedEvent, nil, &out); err != nil {
+		return out, err
+	}
+	if r.AfterWrite != nil {
+		return out, r.AfterWrite(c, tx, nil, &out)
+	}
+	return out, nil
 }
 
 // Update replaces the writable columns of before inside tx.
@@ -213,7 +221,13 @@ func (r *Resource[Out, In]) Update(c *httpx.Ctx, tx pgx.Tx, before Out, in In) (
 	if err != nil {
 		return out, r.mapError(err)
 	}
-	return out, r.record(c, tx, "update", r.UpdatedEvent, &before, &out)
+	if err := r.record(c, tx, "update", r.UpdatedEvent, &before, &out); err != nil {
+		return out, err
+	}
+	if r.AfterWrite != nil {
+		return out, r.AfterWrite(c, tx, &before, &out)
+	}
+	return out, nil
 }
 
 func (r *Resource[Out, In]) record(c *httpx.Ctx, tx pgx.Tx, action, event string, before, after *Out) error {
@@ -349,6 +363,10 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	r.init()
 	var routes []httpx.Route
 	name := strings.ReplaceAll(r.Noun, "_", " ")
+	aName := "a " + name
+	if strings.ContainsRune("aeiou", rune(name[0])) {
+		aName = "an " + name
+	}
 	listDesc := ""
 	for _, f := range r.Filters {
 		listDesc += fmt.Sprintf("`%s` filters by %s. ", f.Query, strings.ReplaceAll(f.Column, "_", " "))
@@ -398,13 +416,13 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	}
 	routes = append(routes, httpx.Route{
 		Method: "GET", Path: r.Path + "/{id}", Tag: r.Tag, Feature: r.Feature, Scope: r.ReadScope,
-		Summary: "Get a " + name, Response: *new(Out),
+		Summary: "Get " + aName, Response: *new(Out),
 		Handler: func(c *httpx.Ctx) (any, error) { return r.getScoped(c, c.App.Pool, false) },
 	})
 	if !r.NoCreate {
 		routes = append(routes, httpx.Route{
 			Method: "POST", Path: r.Path, Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
-			Summary: "Create a " + name, Body: *new(In), Response: *new(Out), Status: 201,
+			Summary: "Create " + aName, Body: *new(In), Response: *new(Out), Status: 201,
 			Handler: func(c *httpx.Ctx) (any, error) {
 				var in In
 				if err := c.Decode(&in); err != nil {
@@ -419,7 +437,7 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	if !r.NoUpdate {
 		routes = append(routes, httpx.Route{
 			Method: "PATCH", Path: r.Path + "/{id}", Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
-			Summary: "Update a " + name + " (partial)", Body: *new(In), Response: *new(Out),
+			Summary: "Update " + aName + " (partial)", Body: *new(In), Response: *new(Out),
 			Handler: func(c *httpx.Ctx) (any, error) {
 				var out Out
 				err := c.InTx(func(tx pgx.Tx) error {
@@ -447,14 +465,14 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 		routes = append(routes,
 			httpx.Route{
 				Method: "GET", Path: r.Path + "/external/{externalId}", Tag: r.Tag, Feature: r.Feature, Scope: r.ReadScope,
-				Summary: "Get a " + name + " by external ID", Response: *new(Out),
+				Summary: "Get " + aName + " by external ID", Response: *new(Out),
 				Handler: func(c *httpx.Ctx) (any, error) {
 					return r.Get(c, c.App.Pool, "external_id", c.Param("externalId"), false)
 				},
 			},
 			httpx.Route{
 				Method: "PUT", Path: r.Path + "/external/{externalId}", Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
-				Summary:     "Create or replace a " + name + " by external ID",
+				Summary:     "Create or replace " + aName + " by external ID",
 				Description: "Returns 201 when created and 200 when updated.",
 				Body:        *new(In), Response: *new(Out),
 				Handler: func(c *httpx.Ctx) (any, error) {
@@ -493,7 +511,7 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	if r.Archive {
 		routes = append(routes, httpx.Route{
 			Method: "DELETE", Path: r.Path + "/{id}", Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
-			Summary: "Archive a " + name, Description: "Soft delete: history is kept.", Response: *new(Out),
+			Summary: "Archive " + aName, Description: "Soft delete: history is kept.", Response: *new(Out),
 			Handler: func(c *httpx.Ctx) (any, error) {
 				var out Out
 				err := c.InTx(func(tx pgx.Tx) error {

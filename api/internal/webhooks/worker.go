@@ -43,6 +43,16 @@ type Worker struct {
 
 	PollInterval time.Duration
 	Concurrency  int
+
+	// Jobs run periodically alongside delivery, e.g. alert rule evaluation.
+	Jobs []Job
+}
+
+// Job is periodic background work run by the worker.
+type Job struct {
+	Name  string
+	Every time.Duration
+	Run   func(ctx context.Context) error
 }
 
 func New(pool *pgxpool.Pool, fs *features.Store, box *secure.Box, log *slog.Logger) *Worker {
@@ -61,6 +71,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	tick := time.NewTicker(w.PollInterval)
 	defer tick.Stop()
 	lastCleanup := time.Time{}
+	lastRun := make([]time.Time, len(w.Jobs))
 	for {
 		if _, err := w.Dispatch(ctx); err != nil && ctx.Err() == nil {
 			w.Log.Error("dispatch events", "err", err)
@@ -73,6 +84,15 @@ func (w *Worker) Run(ctx context.Context) error {
 				w.Log.Error("cleanup", "err", err)
 			}
 			lastCleanup = time.Now()
+		}
+		for i, j := range w.Jobs {
+			if time.Since(lastRun[i]) < j.Every {
+				continue
+			}
+			if err := j.Run(ctx); err != nil && ctx.Err() == nil {
+				w.Log.Error("job", "job", j.Name, "err", err)
+			}
+			lastRun[i] = time.Now()
 		}
 		select {
 		case <-ctx.Done():

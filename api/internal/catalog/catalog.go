@@ -152,7 +152,7 @@ var Scopes = []Scope{
 	{"communication:read", "communication", "Read announcements and calendar"},
 	{"communication:write", "communication", "Post announcements, events, recognitions"},
 	{"reports:read", "insights", "Read reports, KPIs, recommendations"},
-	{"reports:write", "insights", "Push custom display metrics"},
+	{"reports:write", "insights", "Push custom display metrics, manage alert rules"},
 	{"notifications:deliver", "communication", "Deliver notifications by SMS or chat"},
 }
 

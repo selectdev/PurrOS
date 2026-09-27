@@ -21,6 +21,7 @@ import (
 	"github.com/selectdev/purros/api/internal/db"
 	"github.com/selectdev/purros/api/internal/events"
 	"github.com/selectdev/purros/api/internal/features"
+	"github.com/selectdev/purros/api/internal/modules/insights"
 	"github.com/selectdev/purros/api/internal/modules/platform"
 	"github.com/selectdev/purros/api/internal/secure"
 	"github.com/selectdev/purros/api/internal/server"
@@ -155,6 +156,7 @@ func serve(ctx context.Context, args []string, stdout io.Writer) error {
 	go app.Features.Listen(ctx)
 	if cfg.RunWorker {
 		w := webhooks.New(pool, app.Features, app.Box, log)
+		w.Jobs = []webhooks.Job{insights.AlertJob(pool, app.Features)}
 		go func() {
 			if err := w.Run(ctx); err != nil {
 				log.Error("worker", "err", err)
@@ -176,7 +178,9 @@ func worker(ctx context.Context) error {
 	}
 	store := features.NewStore(pool)
 	go store.Listen(ctx)
-	return webhooks.New(pool, store, box, logger()).Run(ctx)
+	w := webhooks.New(pool, store, box, logger())
+	w.Jobs = []webhooks.Job{insights.AlertJob(pool, store)}
+	return w.Run(ctx)
 }
 
 func migrate(ctx context.Context, stdout io.Writer) error {

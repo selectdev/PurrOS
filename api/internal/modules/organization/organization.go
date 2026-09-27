@@ -139,7 +139,7 @@ type listQuery struct {
 }
 
 func Routes() []httpx.Route {
-	return []httpx.Route{
+	return append([]httpx.Route{
 		{
 			Method: "GET", Path: "/org-units", Tag: "Organization", Scope: "organization:read",
 			Summary: "List org units (regions, districts…)", Query: listQuery{}, Response: httpx.Page[OrgUnit]{},
@@ -223,5 +223,5 @@ func Routes() []httpx.Route {
 				return httpx.NewPage(list, lp.Limit, func(d Department) string { return d.ID }), nil
 			},
 		},
-	}
+	}, accessRoutes()...)
 }

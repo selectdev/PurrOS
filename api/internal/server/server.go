@@ -16,7 +16,11 @@ import (
 	"github.com/selectdev/purros/api/internal/features"
 	"github.com/selectdev/purros/api/internal/httpx"
 	"github.com/selectdev/purros/api/internal/modules/cash"
+	"github.com/selectdev/purros/api/internal/modules/communication"
+	"github.com/selectdev/purros/api/internal/modules/equipment"
+	"github.com/selectdev/purros/api/internal/modules/insights"
 	"github.com/selectdev/purros/api/internal/modules/inventory"
+	"github.com/selectdev/purros/api/internal/modules/operations"
 	"github.com/selectdev/purros/api/internal/modules/organization"
 	"github.com/selectdev/purros/api/internal/modules/people"
 	"github.com/selectdev/purros/api/internal/modules/platform"
@@ -56,6 +60,10 @@ func NewApp(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (*httpx.App
 	router.Add(sales.Routes()...)
 	router.Add(sales.OrderRoutes()...)
 	router.Add(cash.Routes()...)
+	router.Add(operations.Routes()...)
+	router.Add(equipment.Routes()...)
+	router.Add(communication.Routes()...)
+	router.Add(insights.Routes()...)
 
 	return &httpx.App{
 		Config:   cfg,
