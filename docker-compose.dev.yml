@@ -1,0 +1,10 @@
+# Local development: PostgreSQL only. Run the API with `go run ./cmd/purros serve` in api/.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: purros
+      POSTGRES_PASSWORD: purros
+      POSTGRES_DB: purros
+    ports:
+      - "5432:5432"

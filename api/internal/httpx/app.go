@@ -1,0 +1,306 @@
+package httpx
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"runtime/debug"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/selectdev/purros/api/internal/config"
+	"github.com/selectdev/purros/api/internal/features"
+	"github.com/selectdev/purros/api/internal/ids"
+	"github.com/selectdev/purros/api/internal/secure"
+)
+
+const (
+	APIPrefix    = "/api/v1"
+	maxBodyBytes = 10 << 20 // 10 MiB
+)
+
+// App holds the dependencies shared by every handler.
+type App struct {
+	Config   config.Config
+	Pool     *pgxpool.Pool
+	Features *features.Store
+	Box      *secure.Box
+	Limiter  Limiter
+	Log      *slog.Logger
+	Router   *Router
+	Now      func() time.Time
+}
+
+// Principal is the authenticated caller.
+type Principal struct {
+	KeyID                  string
+	Kind                   string // "integration" | "personal"
+	IntegrationID          string
+	IntegrationName        string // manifest name, also its integrationData namespace
+	IntegrationDisplayName string
+	UserID                 string
+	Scopes                 []string
+}
+
+func (p *Principal) HasScope(s string) bool { return p != nil && slices.Contains(p.Scopes, s) }
+
+// Ctx is passed to handlers.
+type Ctx struct {
+	context.Context
+	App       *App
+	Req       *http.Request
+	Route     *Route
+	Params    map[string]string
+	Principal *Principal
+	RequestID string
+	body      []byte
+}
+
+func (c *Ctx) Param(name string) string { return c.Params[name] }
+
+func (c *Ctx) Query(name string) string { return c.Req.URL.Query().Get(name) }
+
+func (c *Ctx) ClientIP() string {
+	if c.App.Config.TrustProxy {
+		if xff := c.Req.Header.Get("X-Forwarded-For"); xff != "" {
+			first, _, _ := strings.Cut(xff, ",")
+			return strings.TrimSpace(first)
+		}
+	}
+	host, _, err := net.SplitHostPort(c.Req.RemoteAddr)
+	if err != nil {
+		return c.Req.RemoteAddr
+	}
+	return host
+}
+
+// Decode parses the JSON body into v and validates it.
+func (c *Ctx) Decode(v any) error {
+	if len(c.body) == 0 {
+		return BadRequest("A JSON request body is required.")
+	}
+	if err := json.Unmarshal(c.body, v); err != nil {
+		var ute *json.UnmarshalTypeError
+		if errors.As(err, &ute) {
+			return Validation(FieldError{Path: ute.Field, Message: "Must be of type " + ute.Type.String()})
+		}
+		return BadRequest("Malformed JSON: " + err.Error())
+	}
+	return Validate(v)
+}
+
+// InTx runs fn in a database transaction.
+func (c *Ctx) InTx(fn func(tx pgx.Tx) error) error {
+	tx, err := c.App.Pool.Begin(c)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(c) }()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(c)
+}
+
+// RequireFeature returns a feature_disabled problem if key is off. Use it for
+// sub-features checked inside a handler.
+func (c *Ctx) RequireFeature(key string) error {
+	ok, err := c.App.Features.IsEnabled(c, key)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return FeatureDisabled(key)
+	}
+	return nil
+}
+
+// Result lets a handler choose the status code or add headers.
+type Result struct {
+	Status  int
+	Body    any
+	Headers map[string]string
+}
+
+// ServeHTTP handles /api/v1/*.
+func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	reqID := r.Header.Get("X-Request-Id")
+	if reqID == "" || len(reqID) > 100 {
+		reqID = ids.New(ids.Request)
+	}
+	w.Header().Set("X-Request-Id", reqID)
+	start := time.Now()
+	status := 0
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			a.Log.Error("panic", "requestId", reqID, "panic", rec, "stack", string(debug.Stack()))
+			status = writeProblem(w, Internal(), reqID)
+		}
+		a.Log.Info("request", "requestId", reqID, "method", r.Method, "path", r.URL.Path,
+			"status", status, "durationMs", time.Since(start).Milliseconds())
+	}()
+
+	status = a.serve(w, r, reqID)
+}
+
+func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
+	path := strings.TrimPrefix(r.URL.Path, APIPrefix)
+	route, params, prob := a.Router.find(r.Method, path)
+	if prob != nil {
+		return writeProblem(w, prob, reqID)
+	}
+
+	c := &Ctx{Context: r.Context(), App: a, Req: r, Route: route, Params: params, RequestID: reqID}
+
+	// 1. Authenticate.
+	if route.Auth != AuthNone {
+		p, prob := a.authenticate(c)
+		if prob != nil {
+			return writeProblem(w, prob, reqID)
+		}
+		if route.Auth == AuthIntegration && p.Kind != "integration" {
+			return writeProblem(w, Forbidden("This endpoint is only available to integration keys."), reqID)
+		}
+		c.Principal = p
+	}
+
+	// 2. Feature switch.
+	if route.Feature != "" {
+		ok, err := a.Features.IsEnabled(c, route.Feature)
+		if err != nil {
+			return a.fail(w, c, err)
+		}
+		if !ok {
+			return writeProblem(w, FeatureDisabled(route.Feature), reqID)
+		}
+	}
+
+	// 3. Scope.
+	if route.Scope != "" && !c.Principal.HasScope(route.Scope) {
+		return writeProblem(w, Forbidden("This API key lacks the "+route.Scope+" scope."), reqID)
+	}
+
+	// 4. Rate limit.
+	if c.Principal != nil && a.Limiter != nil {
+		limit, class := a.Config.RateLimitPerMin, "default"
+		if route.Ingest {
+			limit, class = a.Config.IngestRateLimitPerMin, "ingest"
+		}
+		res, err := a.Limiter.Allow(c, c.Principal.KeyID+":"+class, limit, time.Minute)
+		if err != nil {
+			a.Log.Warn("rate limiter unavailable", "err", err)
+		} else {
+			w.Header().Set("RateLimit-Limit", strconv.Itoa(limit))
+			w.Header().Set("RateLimit-Remaining", strconv.Itoa(res.Remaining))
+			w.Header().Set("RateLimit-Reset", strconv.Itoa(res.ResetSeconds))
+			if !res.Allowed {
+				w.Header().Set("Retry-After", strconv.Itoa(res.ResetSeconds))
+				return writeProblem(w, RateLimited(res.ResetSeconds), reqID)
+			}
+		}
+	}
+
+	// 5. Body.
+	if r.Body != nil && r.Method != http.MethodGet {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+		if err != nil {
+			return writeProblem(w, BadRequest("Request body too large or unreadable."), reqID)
+		}
+		c.body = body
+	}
+
+	// 6. Idempotency (POST only).
+	idemKey := r.Header.Get("Idempotency-Key")
+	if r.Method == http.MethodPost && idemKey != "" && c.Principal != nil {
+		if len(idemKey) > 255 {
+			return writeProblem(w, BadRequest("Idempotency-Key must be at most 255 characters."), reqID)
+		}
+		replay, prob, err := a.idempotencyLookup(c, idemKey)
+		if err != nil {
+			return a.fail(w, c, err)
+		}
+		if prob != nil {
+			return writeProblem(w, prob, reqID)
+		}
+		if replay != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Idempotent-Replayed", "true")
+			w.WriteHeader(replay.status)
+			_, _ = w.Write(replay.body)
+			return replay.status
+		}
+	}
+
+	// 7. Handle.
+	out, err := route.Handler(c)
+	if err != nil {
+		return a.fail(w, c, err)
+	}
+	status := route.Status
+	body := out
+	if res, ok := out.(Result); ok {
+		if res.Status != 0 {
+			status = res.Status
+		}
+		body = res.Body
+		for k, v := range res.Headers {
+			w.Header().Set(k, v)
+		}
+	}
+	var payload []byte
+	if body != nil {
+		payload, err = json.Marshal(body)
+		if err != nil {
+			return a.fail(w, c, err)
+		}
+	}
+	if idemKey != "" && r.Method == http.MethodPost && c.Principal != nil && status < 500 {
+		if err := a.idempotencyStore(c, idemKey, status, payload); err != nil {
+			a.Log.Warn("store idempotency record", "err", err, "requestId", reqID)
+		}
+	}
+	if payload == nil {
+		w.WriteHeader(status)
+		return status
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(payload)
+	return status
+}
+
+func (a *App) fail(w http.ResponseWriter, c *Ctx, err error) int {
+	p, known := AsProblem(err)
+	if !known {
+		a.Log.Error("handler error", "requestId", c.RequestID, "path", c.Req.URL.Path, "err", err)
+	}
+	return writeProblem(w, p, c.RequestID)
+}
+
+func writeProblem(w http.ResponseWriter, p *Problem, reqID string) int {
+	cp := *p
+	cp.RequestID = reqID
+	if cp.retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(cp.retryAfter))
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(cp.Status)
+	_ = json.NewEncoder(w).Encode(cp)
+	return cp.Status
+}
+
+// WriteJSON writes a plain JSON response (for non-API endpoints such as /api/health).
+func WriteJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}

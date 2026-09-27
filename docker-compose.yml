@@ -1,0 +1,43 @@
+# PurrOS — production-style Compose file.
+# Copy .env.example to .env and fill it in first. See docs/getting-started/installation.md.
+services:
+  api:
+    build:
+      context: ./api
+      args:
+        VERSION: ${PURROS_VERSION:-dev}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://purros:${POSTGRES_PASSWORD}@db:5432/purros?sslmode=disable
+      PURROS_LISTEN: ":8080"
+    ports:
+      - "127.0.0.1:8080:8080"   # put a reverse proxy with TLS in front
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: purros
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: purros
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U purros -d purros"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Optional: share API rate limits across several api containers.
+  # Start with `docker compose --profile redis up -d` and set REDIS_URL=redis://redis:6379 in .env.
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    restart: unless-stopped
+
+volumes:
+  db-data:

@@ -1,0 +1,7 @@
+.env
+/api/purros
+/api/bin/
+*.test
+*.out
+.DS_Store
+node_modules/

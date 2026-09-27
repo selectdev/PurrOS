@@ -1,0 +1,13 @@
+{
+  "name": "dev",
+  "displayName": "Local development",
+  "version": "0.1.0",
+  "description": "Full-access key for local development. Don't use in production.",
+  "scopes": [
+    "organization:read",
+    "people:read", "people:write",
+    "time:read", "time:write",
+    "sales:read", "sales:write",
+    "inventory:read", "inventory:write"
+  ]
+}
