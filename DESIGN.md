@@ -205,6 +205,17 @@ Raw punches are never modified. Manual corrections create entries flagged `sourc
 | Actions | `POST /timesheets/{id}:approve`, `POST /purchase-orders/{id}:receive` |
 | Incremental sync | `GET /employees?updatedSince=2026-09-01T00:00:00Z` |
 
+### Data ingestion (POS, online stores, other services)
+
+The API's main workload is taking in data from external systems. Ingestion endpoints (`/sales/transactions:batch`, `/sales-summaries`, `/cash/tenders`, `/cash/settlements`, `/time/punches:batch`, plus upserts by `externalId` for items and sales orders) share these rules:
+
+- **Idempotent by source.** Each record is unique on `(source, externalId)`. Re-sending updates the record instead of duplicating it, so integrations can safely retry or replay a whole day.
+- **Fast accept, async processing.** A batch is validated, stored as raw records and acknowledged in one transaction (`202` with per-record results). Deriving stock movements, usage, cash expectations and KPI aggregates then happens in the worker, so a busy POS never waits on reporting.
+- **Raw data is kept.** Raw ingested records are immutable and linked to what was derived from them, so any figure can be traced back to its source and recalculated if rules (e.g. usage recipes) change.
+- **Late and corrected data.** Refunds, voids and backdated corrections are normal. They re-trigger the affected aggregates, and data arriving after a pay period or business day is locked is flagged for review instead of silently changing locked figures.
+- **Unknown references.** A transaction line with an unknown SKU is still stored and shows up in an "unmapped items" queue for someone to match, rather than being rejected.
+- **Higher limits.** Ingestion keys get a separate, higher rate-limit bucket than interactive API use.
+
 ### Pagination
 
 Cursor-based:

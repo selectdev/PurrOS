@@ -375,7 +375,46 @@ Back up PostgreSQL before every upgrade. See [DESIGN.md → Operations](DESIGN.m
 
 ## API at a glance
 
+The API's main job is **bringing data into PurrOS** from the other systems a business runs on: point-of-sale systems, online stores, delivery platforms, timeclocks and HR tools. An integration reads data from those services and sends it to PurrOS, which then uses it for inventory, cash, forecasting, scheduling and reports.
+
 All endpoints live under `/api/v1`, use JSON, and authenticate with a bearer API key that you create under **Settings → API keys**.
+
+### Bringing in data from POS systems and online stores
+
+| Data from the POS or online store | Endpoint | What PurrOS uses it for |
+|---|---|---|
+| Sales transactions (items, quantities, prices, discounts, taxes, tenders, refunds, voids) | `POST /api/v1/sales/transactions:batch` | Stock deduction via usage recipes, expected vs actual usage, reports |
+| Sales totals by day or hour (net sales, transaction count, guests, orders) | `POST /api/v1/sales-summaries` | Forecasting and scheduling, labor % of sales, dashboards |
+| Tender totals per drawer or shift (cash, card, gift card, third-party platforms) | `POST /api/v1/cash/tenders` | Expected cash for drawer counts, card and platform reconciliation |
+| Processor and platform settlements | `POST /api/v1/cash/settlements` | Checking that card and online payments were actually paid out |
+| Online orders to fulfil | `PUT /api/v1/sales-orders/external/{externalId}` | Stock reservation, pick/pack/ship, invoicing |
+| Product catalog (products, variants, SKUs, barcodes) | `PUT /api/v1/items/external/{externalId}` | Keeping PurrOS items matched to the POS or store catalog |
+| Staff clock-ins recorded on the POS | `POST /api/v1/time/punches:batch` | Timesheets and payroll export |
+
+Each record carries the source system's ID (`externalId`) and a `source` label (e.g. `pos:front-counter`, `web-store`), so re-sending the same data never creates duplicates and every figure can be traced back to where it came from. Batches accept up to 1,000 records and report the result for each one. Late or corrected data (refunds, voids, end-of-day corrections) is accepted and recalculates the affected reports.
+
+```bash
+# Send POS transactions
+curl -X POST https://erp.example.com/api/v1/sales/transactions:batch \
+  -H "Authorization: Bearer pk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "pos:front-counter",
+    "transactions": [{
+      "externalId": "txn-88213",
+      "locationId": "loc_01H...",
+      "occurredAt": "2026-09-27T12:41:07Z",
+      "lines": [{ "itemSku": "LATTE-12", "quantity": "2", "unitPrice": "4.50", "discount": "0.00" }],
+      "tenders": [{ "type": "card", "amount": "9.00" }],
+      "tax": "0.72",
+      "total": "9.72"
+    }]
+  }'
+```
+
+An integration can collect this data however suits the source system: by listening to the store's or POS's own webhooks, by polling its API every few minutes, or by importing an end-of-day export file.
+
+### Other examples
 
 ```bash
 # Create an employee
@@ -399,7 +438,7 @@ curl -X POST https://erp.example.com/api/v1/inventory/adjustments \
 ```
 
 - **OpenAPI spec:** `GET /api/v1/openapi.json`. Interactive docs are served at `/docs/api`.
-- **Webhooks:** subscribe to events such as `employee.updated`, `timesheet.approved` or `stock.level_changed`. Payloads are signed with HMAC-SHA256.
+- **Webhooks (optional, outgoing):** when another system needs to hear about changes made in PurrOS, it can subscribe to events such as `employee.updated`, `pay_period.locked` or `stock.below_reorder_point`. Payloads are signed with HMAC-SHA256.
 - **External IDs:** every core record accepts an `externalId`, so you can sync by your source system's ID without keeping a mapping table.
 
 The full conventions (pagination, errors, idempotency, rate limits) are in [DESIGN.md → API](DESIGN.md#5-api-design).
