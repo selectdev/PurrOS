@@ -16,7 +16,7 @@ PurrOS covers the core of running a business of 20–500 people: employees, time
 Most ERP systems fall into one of two groups: enterprise suites that take months to roll out, or spreadsheets that fall apart after the tenth employee. PurrOS is aimed at the space in between.
 
 - **API-first.** Anything you can do in the UI, you can do through a versioned REST API. Every change emits a signed webhook.
-- **Built to integrate through plugins.** PurrOS has no hard-coded vendor integrations. You connect employment management software, timeclocks or inventory systems by writing a small plugin against the public API, with a typed SDK and starter template to help.
+- **Built to integrate.** PurrOS has no hard-coded vendor integrations. You connect employment management software, timeclocks or inventory systems by writing a small integration against the public API, with a typed SDK and starter template to help.
 - **Self-hosted.** Runs on your own infrastructure with Docker Compose. Your data stays with you.
 - **Mid-range by design.** Includes what a growing business needs and leaves out what it doesn't. See [PRODUCT.md](PRODUCT.md) for scope and non-goals.
 - **Open source.** Licensed under AGPL-3.0.
@@ -138,19 +138,19 @@ curl -X POST https://erp.example.com/api/v1/inventory/adjustments \
 
 The full conventions (pagination, errors, idempotency, rate limits) are in [DESIGN.md → API](DESIGN.md#5-api-design).
 
-## Integrations are plugins
+## Integrations
 
-PurrOS ships **no built-in integrations** for specific HR platforms, timeclocks, stores or payroll providers. To connect a system, you write a **plugin**: a small program you run yourself that uses the PurrOS API and webhooks.
+PurrOS ships **no built-in integrations** for specific HR platforms, timeclocks, stores or payroll providers. To connect a system, you write an **integration**: a small program you run yourself that uses the PurrOS API and webhooks.
 
-1. Start from the plugin template (`packages/plugin-template`) or any language with an OpenAPI client.
-2. Describe the plugin in a manifest: which API scopes it needs and which webhook events it wants.
-3. Register it under **Settings → Plugins**. PurrOS issues a scoped API key and a webhook signing secret.
+1. Start from the integration template (`packages/integration-template`) or any language with an OpenAPI client.
+2. Describe the integration in a manifest: which API scopes it needs and which webhook events it wants.
+3. Register it under **Settings → Integrations**. PurrOS issues a scoped API key and a webhook signing secret.
 4. Run it wherever you like: next to PurrOS in Docker Compose, as a serverless function, or as a cron job.
 
 ```ts
 import { PurrOS, verifyWebhook } from "@purros/sdk";
 
-const purros = new PurrOS({ baseUrl: process.env.PURROS_URL, apiKey: process.env.PURROS_PLUGIN_KEY });
+const purros = new PurrOS({ baseUrl: process.env.PURROS_URL, apiKey: process.env.PURROS_INTEGRATION_KEY });
 
 // Forward punches from your timeclock
 await purros.time.punches.batch([
@@ -158,7 +158,7 @@ await purros.time.punches.batch([
 ]);
 ```
 
-Plugins can't reach the database or PurrOS internals, so a buggy plugin can't take the ERP down. See [DESIGN.md → Plugins](DESIGN.md#7-plugins).
+Integrations can't reach the database or PurrOS internals, so a buggy integration can't take the ERP down. See [DESIGN.md → Integrations](DESIGN.md#7-integrations).
 
 ---
 
