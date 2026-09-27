@@ -1,0 +1,160 @@
+# PurrOS: Product
+
+This document explains what PurrOS is, who it is for, what it does and does not do, and how we decide what gets built. When a feature request comes in, this is the document to check it against.
+
+---
+
+## 1. Vision
+
+**Give growing businesses an ERP they can own, understand, and connect to anything.**
+
+A company of 20–500 people usually runs on an HR platform, a timeclock, an inventory tool, a spreadsheet for purchasing, and someone who copies data between them. PurrOS becomes the system of record in the middle: one database for people, time, stock and orders, with an API that other tools can connect to without a consultant.
+
+## 2. Problem
+
+| Pain | Today | With PurrOS |
+|---|---|---|
+| Data lives in 4–6 disconnected tools | Manual CSV exports, re-keying, errors | One system of record, synced through the API and webhooks |
+| Enterprise ERPs are too heavy | 6–12 month rollouts, per-seat licensing, consultants | Deployed in a day with Docker, no per-seat cost |
+| Timeclock data doesn't reach payroll cleanly | Punches exported and fixed up by hand every pay period | Punches flow in live, timesheets get approved, payroll export takes one click |
+| Stock levels are never quite right | Inventory updated after the fact, if at all | Receipts, sales and adjustments update stock in real time |
+| Vendor lock-in and data residency | Data sits in someone else's cloud | Self-hosted, open source, with the full database under your control |
+
+## 3. Target users
+
+**Primary market:** small and mid-sized businesses with **20–500 employees** that handle physical goods and hourly staff, for example light manufacturing, distribution, wholesale, multi-location retail, and field services.
+
+### Personas
+
+**Operations Manager (primary buyer)**
+Owns "how the business runs." Wants one place to see who is working, what is in stock, and what has been ordered. Judges success by fewer errors and less time spent reconciling.
+
+**HR / Payroll Administrator**
+Keeps employee records, reviews timesheets, and runs payroll through an external provider. Needs clean, approved hours exported on time.
+
+**Warehouse / Inventory Lead**
+Receives goods, moves stock, and runs cycle counts. Needs fast screens that work on a tablet or scanner, and accurate numbers.
+
+**Line Manager**
+Approves their team's timesheets and purchase requests. Uses PurrOS a few minutes a day and needs things to be obvious.
+
+**Integrator / IT Generalist (key adopter)**
+Often a single in-house developer or an outside contractor. Deploys PurrOS and connects it to the existing HR system, timeclock hardware, and e-commerce or scanner apps. Whether the API is pleasant to use decides whether PurrOS gets adopted.
+
+## 4. Product principles
+
+1. **The API comes first.** Every feature is built as an API endpoint before it gets a UI. If the API can't do it, it isn't done.
+2. **Integrate, don't replace.** PurrOS does not try to be the best HRIS, payroll engine or e-commerce platform. It connects to them and stays the source of truth for the data in the middle.
+3. **Boring and correct over clever.** Stock quantities, hours and money must always be right. Prefer explicit ledgers, immutable history and audit logs.
+4. **Self-hosting is a first-class path.** Installs, upgrades and backups have to work for one IT person with Docker. There is no hosted-only feature.
+5. **Mid-range means saying no.** A feature that would help 5% of users and complicate things for the other 95% belongs in a plugin or an integration, not in core.
+6. **Calm, professional UI.** Dense where power users need it and plain where occasional users need it. No gamification and no clutter.
+
+## 5. Scope: v1
+
+### 5.1 People (Employee Management)
+- Employee profiles: personal info, contact, employment type (full-time, part-time, contractor), status (active, on leave, terminated), start and end dates
+- Organisation structure: departments, positions, reporting lines, locations
+- Custom fields per company
+- Document attachments (contracts, certifications) with expiry reminders
+- **Sync from external HR/employment software** by `externalId`, both one-way and bidirectional
+
+### 5.2 Time & Attendance
+- Punch ingestion from any timeclock (API, CSV import, or a connector)
+- Shifts and schedules (basic weekly roster, not full workforce optimisation)
+- Automatic timesheet generation from punches, with detection of missed punches and exceptions
+- Configurable rules: rounding, breaks, daily and weekly overtime thresholds
+- Two-step approval: manager, then payroll admin
+- Lock pay periods, then export to payroll (CSV templates plus API)
+- Paid time off tracking (balances and requests, simple accrual)
+
+### 5.3 Inventory & Warehouse
+- Items and SKUs, variants, units of measure with conversions, barcodes
+- Multiple warehouses with bin locations
+- Stock ledger: every movement (receipt, shipment, transfer, adjustment, count) is an immutable entry, and on-hand quantity is derived from the ledger
+- Reserved and available quantities (reserved by sales orders)
+- Reorder points and low-stock alerts
+- Cycle counts and full stock takes
+- Valuation: weighted average cost in v1
+
+### 5.4 Purchasing
+- Suppliers and supplier price lists
+- Purchase requests, then purchase orders, with approval thresholds
+- Goods receipts (partial and full) that post to the stock ledger
+- PO status tracking and supplier performance basics
+
+### 5.5 Sales
+- Customers and price lists
+- Quotes, then sales orders, with stock reservation
+- Pick, pack and ship, which posts to the stock ledger
+- Basic invoicing (PDF) and payment status, exportable to accounting software
+
+### 5.6 Platform
+- Multi-user with role-based access control and location scoping
+- API keys with scopes, and signed webhooks with retries
+- Full audit log (who changed what, when, and from UI or API)
+- CSV import and export for every core entity
+- Single company per install in v1, multi-currency display, and configurable timezone and locale
+- SSO via OIDC (Google Workspace, Microsoft Entra ID, Keycloak, Authentik, etc.)
+
+## 6. Non-goals (v1)
+
+These are left out on purpose. Integrate with a dedicated tool instead.
+
+- **Payroll calculation and tax filing.** We export approved hours to payroll providers.
+- **Full general ledger / accounting.** We export invoices and bills to accounting software.
+- **Recruiting / ATS, performance reviews, learning management**
+- **Manufacturing (BOMs, MRP, work orders).** Candidate for v2.
+- **CRM and marketing automation**
+- **E-commerce storefront.** We integrate with storefronts instead.
+- **Multi-company / multi-tenant hosting in one install**
+- **Native mobile apps.** The web UI is responsive and works on tablets and scanners.
+
+## 7. Integrations
+
+The integration story is what sets PurrOS apart. v1 ships three layers:
+
+1. **REST API + webhooks** (always available): covers the whole product, with a published OpenAPI spec.
+2. **Import/export templates**: CSV formats for common timeclock and HR exports.
+3. **First-party connectors** (priority to be set by community demand):
+
+| Category | Example targets |
+|---|---|
+| Employment / HR software | BambooHR, Personio, Gusto, Rippling, HiBob |
+| Timeclocks | Generic REST/CSV timeclocks, ZKTeco, Clockify, Deputy, Homebase |
+| Inventory / commerce | Shopify, WooCommerce, barcode scanner apps |
+| Payroll / accounting (export) | ADP, Paychex, QuickBooks, Xero |
+
+Connectors run inside the PurrOS worker and use only the public API, so anyone can build a connector.
+
+## 8. Success metrics
+
+| Metric | Target for v1 |
+|---|---|
+| Time from `git clone` to first login | < 15 minutes |
+| Time for a developer to push their first punch or employee via the API | < 30 minutes, using only the docs |
+| API coverage of UI actions | 100% |
+| Stock ledger correctness | Zero unexplained discrepancies (on-hand always equals the ledger sum) |
+| p95 API latency (single-record reads, 500-employee dataset) | < 200 ms |
+| Upgrade success without manual DB intervention | 100% of minor releases |
+
+Community metrics (tracked, not targeted): GitHub stars, active installs (anonymous, opt-in telemetry only), external contributors, and community-built connectors.
+
+## 9. Roadmap
+
+| Phase | Focus |
+|---|---|
+| **0.1 — Foundation** | Auth, RBAC, audit log, API keys, webhooks, People module |
+| **0.2 — Time** | Punch ingestion, timesheets, approvals, payroll CSV export |
+| **0.3 — Inventory** | Items, locations, stock ledger, adjustments, transfers, counts |
+| **0.4 — Purchasing & Sales** | Suppliers, POs, receipts, customers, SOs, fulfilment, invoices |
+| **0.5 — Connectors** | First HR, timeclock and commerce connectors; import templates |
+| **1.0 — Stable** | API v1 frozen, upgrade guarantees, documentation complete |
+| **Post-1.0** | Manufacturing (BOM/work orders), plugin system, multi-company, advanced scheduling |
+
+## 10. Open questions
+
+- Should the plugin/extension system land before 1.0 so that connectors can live outside core?
+- Which three connectors do we build first? This will be decided by a community poll.
+- Is opt-in anonymous telemetry acceptable to the community for measuring adoption?
+- Do we offer a commercially supported / managed hosting option later, and how does that interact with AGPL?
