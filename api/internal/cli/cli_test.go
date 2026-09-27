@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/selectdev/purros/api/internal/cli"
 	"github.com/selectdev/purros/api/internal/db"
 	"github.com/selectdev/purros/api/internal/secure"
+	"github.com/selectdev/purros/api/internal/storage"
+	"github.com/selectdev/purros/api/internal/storage/storagetest"
 	"github.com/selectdev/purros/api/internal/testutil"
 )
 
@@ -219,7 +223,7 @@ func TestStatusDoctorMigrate(t *testing.T) {
 	if out, _, code := run(t, u, "", "doctor"); code != 1 || !strings.Contains(out, "don't match the ledger") {
 		t.Fatalf("doctor should fail on drift (exit %d): %s", code, out)
 	}
-	if out := mustRun(t, u, "", "migrate", "status"); !strings.Contains(out, "00005_backups.sql  applied") {
+	if out := mustRun(t, u, "", "migrate", "status"); !regexp.MustCompile(`00006_attachments\.sql\s+applied`).MatchString(out) {
 		t.Fatalf("migrate status: %s", out)
 	}
 	mustRun(t, u, "", "migrate", "--dry-run")
@@ -276,4 +280,88 @@ func TestInitAndEnvFile(t *testing.T) {
 	os.Unsetenv("PURROS_BACKUP_DIR")
 	os.Unsetenv("SMTP_FROM")
 	os.Unsetenv("LOG_LEVEL")
+}
+
+func TestBackupS3AndStorageCommands(t *testing.T) {
+	env := testutil.New(t, []string{"people:write"}, nil)
+	env.Do("POST", "/api/v1/employees", map[string]any{"firstName": "Cloud", "lastName": "Kept"}).Expect(t, 201)
+	s3 := storagetest.S3(t, "backups")
+	t.Setenv("PURROS_BACKUP_S3_ENABLED", "true")
+	t.Setenv("PURROS_BACKUP_S3_BUCKET", s3.Bucket)
+	t.Setenv("PURROS_BACKUP_S3_REGION", s3.Region)
+	t.Setenv("PURROS_BACKUP_S3_ENDPOINT", s3.Endpoint)
+	t.Setenv("PURROS_BACKUP_S3_ACCESS_KEY_ID", s3.AccessKeyID)
+	t.Setenv("PURROS_BACKUP_S3_SECRET_ACCESS_KEY", s3.SecretAccessKey)
+	t.Setenv("PURROS_BACKUP_S3_FORCE_PATH_STYLE", "true")
+	t.Setenv("PURROS_BACKUP_DIR", "")
+	t.Setenv("STORAGE_LOCAL_PATH", t.TempDir())
+
+	// No local directory: the backup goes only to S3.
+	out := mustRun(t, env.DatabaseURL, "", "--json", "backup", "create")
+	var res struct {
+		Path      string `json:"path"`
+		RemoteKey string `json:"remoteKey"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.RemoteKey == "" || res.Path != "" {
+		t.Fatalf("create: %v %s", err, out)
+	}
+	if list := mustRun(t, env.DatabaseURL, "", "backup", "list", "--remote"); !strings.Contains(list, "s3:"+res.RemoteKey) {
+		t.Fatalf("remote list: %s", list)
+	}
+	mustRun(t, env.DatabaseURL, "", "backup", "verify", "s3:"+res.RemoteKey)
+
+	empty := testutil.EmptyDatabase(t)
+	mustRun(t, empty, "", "-y", "backup", "restore", "s3:"+res.RemoteKey)
+	if st := mustRun(t, empty, "", "--json", "status"); !strings.Contains(st, `"employees": 1`) {
+		t.Fatalf("restored: %s", st)
+	}
+	dir := t.TempDir()
+	mustRun(t, empty, "", "backup", "download", res.RemoteKey, "--out", dir)
+	if files, _ := filepath.Glob(filepath.Join(dir, "*.purros-backup")); len(files) != 1 {
+		t.Fatalf("download: %v", files)
+	}
+	mustRun(t, empty, "", "backup", "prune", "--remote", "--keep", "1")
+
+	if out := mustRun(t, empty, "", "storage", "test"); !strings.Contains(out, "works") {
+		t.Fatal(out)
+	}
+	if out := mustRun(t, empty, "", "storage", "test", "--backups"); !strings.Contains(out, "s3://backups/purros-backups/") {
+		t.Fatal(out)
+	}
+	mustRun(t, empty, "", "storage", "verify")
+	if out, _, _ := run(t, empty, "", "doctor"); !strings.Contains(out, "✓ file storage") || !strings.Contains(out, "✓ backup bucket (S3)") {
+		t.Fatalf("doctor: %s", out)
+	}
+}
+
+func TestStorageMigrate(t *testing.T) {
+	env := testutil.New(t, []string{"attachments:write"}, nil)
+	local := t.TempDir()
+	env.App.Storage = storage.NewLocal(local)
+	req, _ := http.NewRequest("POST", env.Server.URL+"/api/v1/attachments?name=note.txt", strings.NewReader("proof of delivery"))
+	req.Header.Set("Authorization", "Bearer "+env.Key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 201 {
+		t.Fatalf("upload: %v %v", err, resp)
+	}
+	resp.Body.Close()
+	s3 := storagetest.S3(t, "files")
+	t.Setenv("STORAGE_DRIVER", "local")
+	t.Setenv("STORAGE_LOCAL_PATH", local)
+	t.Setenv("STORAGE_S3_BUCKET", s3.Bucket)
+	t.Setenv("STORAGE_S3_REGION", s3.Region)
+	t.Setenv("STORAGE_S3_ENDPOINT", s3.Endpoint)
+	t.Setenv("STORAGE_S3_ACCESS_KEY_ID", s3.AccessKeyID)
+	t.Setenv("STORAGE_S3_SECRET_ACCESS_KEY", s3.SecretAccessKey)
+	t.Setenv("STORAGE_S3_FORCE_PATH_STYLE", "true")
+	if out := mustRun(t, env.DatabaseURL, "", "storage", "migrate", "--to", "s3"); !strings.Contains(out, "Copied 1 file(s)") {
+		t.Fatal(out)
+	}
+	if out := mustRun(t, env.DatabaseURL, "", "storage", "migrate", "--to", "s3"); !strings.Contains(out, "1 already there") {
+		t.Fatal(out)
+	}
+	t.Setenv("STORAGE_DRIVER", "s3")
+	if out := mustRun(t, env.DatabaseURL, "", "storage", "verify", "--checksums"); !strings.Contains(out, "0 problem(s)") {
+		t.Fatal(out)
+	}
 }

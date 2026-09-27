@@ -191,22 +191,15 @@ Example IAM policy for AWS:
 
 ### How uploads and downloads work
 
-- **Uploads** from browsers and phones go straight to the bucket through a signed upload URL, so large photos don't pass through the app server. PurrOS checks the file type and size and records the checksum when the upload finishes.
-- **Downloads** go through a permission check, then a redirect to a signed URL that expires after `STORAGE_SIGNED_URL_TTL` seconds.
-- If the storage provider doesn't support browser uploads (CORS), set `STORAGE_S3_PROXY_UPLOADS=true` and uploads go through the app instead.
-
-For direct browser uploads, allow CORS on the bucket from your `PURROS_URL`:
-
-```json
-[{ "AllowedOrigins": ["https://erp.example.com"], "AllowedMethods": ["PUT", "GET"], "AllowedHeaders": ["*"], "MaxAgeSeconds": 3000 }]
-```
+- **Uploads** go through the API (`POST /api/v1/attachments`). They are streamed straight to storage without being held in memory. PurrOS checks the file type from its content, enforces `STORAGE_MAX_UPLOAD_MB`, and records the SHA-256 checksum. See [Attachments](../api/attachments.md).
+- **Downloads** go through a permission check. With S3, the response is a redirect to a signed URL that expires after `STORAGE_SIGNED_URL_TTL` seconds, so the file comes straight from the bucket. With local storage, PurrOS streams the file itself.
+- Direct browser-to-bucket uploads (signed upload URLs) are planned. Until then, the bucket needs no CORS settings.
 
 ### Test it
 
-- **Settings → System → Storage → Test**, or
-- `purros storage test`
-
-This writes, reads and deletes a small test file and reports any permission, CORS or endpoint problem.
+- `purros storage test` writes, reads and deletes a test file (`--backups` tests the backup bucket)
+- `purros storage verify [--checksums]` checks that every attachment's file is in storage
+- `purros doctor` includes the same write/read test
 
 ### Moving from local disk to S3
 
@@ -219,12 +212,35 @@ docker compose up -d
 docker compose exec api purros storage verify
 ```
 
-`storage migrate` copies every file, checks its checksum, and can be stopped and resumed safely. Files uploaded during the migration are copied in a final pass. The local volume isn't deleted, so remove it yourself once you've confirmed everything works.
+`storage migrate` copies every file and checks its checksum. It can be stopped and run again: files already copied are skipped. Run it once more right before switching `STORAGE_DRIVER` to catch files uploaded in the meantime. The local volume isn't deleted, so remove it yourself once you've confirmed everything works.
 
 ---
 
-## Database backups to S3 (planned)
+## Database backups to S3 (optional)
 
-Today PurrOS writes its scheduled database backups to a directory (`PURROS_BACKUP_DIR`; see [Backups & upgrades](../operations/backups-and-upgrades.md)). Copy that directory to object storage with your usual tools. Uploading directly to an S3 bucket is planned.
+PurrOS can upload every backup (scheduled and manual) to an S3-compatible bucket, and keeps a set number there. Use a **different bucket** from file storage, ideally with another provider or in another region.
+
+| Variable | Default | Description |
+|---|---|---|
+| `PURROS_BACKUP_S3_ENABLED` | `false` | Upload backups to the bucket below |
+| `PURROS_BACKUP_S3_BUCKET`, `PURROS_BACKUP_S3_REGION`, `PURROS_BACKUP_S3_ENDPOINT`, `PURROS_BACKUP_S3_ACCESS_KEY_ID`, `PURROS_BACKUP_S3_SECRET_ACCESS_KEY`, `PURROS_BACKUP_S3_FORCE_PATH_STYLE`, `PURROS_BACKUP_S3_SSE`, `PURROS_BACKUP_S3_KMS_KEY_ID` | | Same meaning as the `STORAGE_S3_*` settings |
+| `PURROS_BACKUP_S3_PREFIX` | `purros-backups/` | Folder inside the bucket |
+| `PURROS_BACKUP_S3_KEEP` | `PURROS_BACKUP_KEEP` | How many backups to keep in the bucket |
+
+With S3 enabled, `PURROS_BACKUP_DIR` becomes optional:
+
+- **With a directory**, backups are kept locally *and* uploaded.
+- **Without one**, backups are only uploaded; the local copy is deleted once the upload succeeds.
+
+A failed upload is recorded, shown by `purros backup list` and `purros doctor`, and retried with the next backup.
+
+```bash
+purros backup list --remote                 # backups in the bucket
+purros backup restore s3:<name> --replace   # restore straight from the bucket
+purros backup download <name>               # or download first
+purros storage init --backups               # create the bucket if needed
+```
+
+Encrypt backups before they leave the server with `PURROS_BACKUP_PASSPHRASE`. See [Backups & upgrades](../operations/backups-and-upgrades.md).
 
 The files in storage are backed up separately, through bucket versioning and replication or your own tools.

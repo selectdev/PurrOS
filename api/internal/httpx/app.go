@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"slices"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/selectdev/purros/api/internal/features"
 	"github.com/selectdev/purros/api/internal/ids"
 	"github.com/selectdev/purros/api/internal/secure"
+	"github.com/selectdev/purros/api/internal/storage"
 )
 
 const (
@@ -37,6 +39,7 @@ type App struct {
 	Log      *slog.Logger
 	Router   *Router
 	Now      func() time.Time
+	Storage  storage.Driver
 }
 
 // Principal is the authenticated caller.
@@ -146,6 +149,18 @@ type Raw struct {
 	Body        []byte
 }
 
+// Stream is a streamed response body, such as a downloaded file.
+type Stream struct {
+	ContentType string
+	Filename    string
+	Inline      bool // show in the browser rather than download
+	Size        int64
+	Body        io.ReadCloser
+}
+
+// Redirect sends the client to another URL (e.g. a signed download URL).
+type Redirect struct{ URL string }
+
 // Result lets a handler choose the status code or add headers.
 type Result struct {
 	Status  int
@@ -216,8 +231,9 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 		}
 	}
 
-	// 5. Body (read before access checks, which may look at it).
-	if r.Body != nil && r.Method != http.MethodGet {
+	// 5. Body (read before access checks, which may look at it). Streaming
+	// routes (uploads) read it themselves.
+	if r.Body != nil && r.Method != http.MethodGet && !route.Stream {
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
 			return writeProblem(w, BadRequest("Request body too large or unreadable."), reqID)
@@ -258,6 +274,9 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 
 	// 6. Idempotency (POST only).
 	idemKey := r.Header.Get("Idempotency-Key")
+	if route.Stream {
+		idemKey = "" // the body isn't buffered, so replays can't be matched
+	}
 	if r.Method == http.MethodPost && idemKey != "" && c.Principal != nil {
 		if len(idemKey) > 255 {
 			return writeProblem(w, BadRequest("Idempotency-Key must be at most 255 characters."), reqID)
@@ -286,6 +305,22 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 	if c.limit != nil && c.limit.deferred && !c.limit.checked {
 		a.Log.Error("reach not checked", "path", route.Path, "requestId", reqID)
 		return writeProblem(w, OutOfReach("This request can't be limited to your reach."), reqID)
+	}
+	if st, ok := out.(Stream); ok {
+		defer st.Body.Close()
+		w.Header().Set("Content-Type", st.ContentType)
+		w.Header().Set("Content-Disposition", ContentDisposition(st.Filename, st.Inline))
+		if st.Size >= 0 {
+			w.Header().Set("Content-Length", strconv.FormatInt(st.Size, 10))
+		}
+		w.WriteHeader(route.Status)
+		_, _ = io.Copy(w, st.Body)
+		return route.Status
+	}
+	if rd, ok := out.(Redirect); ok {
+		w.Header().Set("Location", rd.URL)
+		w.WriteHeader(http.StatusFound)
+		return http.StatusFound
 	}
 	if raw, ok := out.(Raw); ok {
 		w.Header().Set("Content-Type", raw.ContentType)
@@ -354,4 +389,23 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// ContentDisposition builds a Content-Disposition header with a safe ASCII
+// filename and the UTF-8 original.
+func ContentDisposition(filename string, inline bool) string {
+	disp := "attachment"
+	if inline {
+		disp = "inline"
+	}
+	if filename == "" {
+		return disp
+	}
+	ascii := strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e || r == '"' || r == '\\' || r == '/' {
+			return '_'
+		}
+		return r
+	}, filename)
+	return disp + `; filename="` + ascii + `"; filename*=UTF-8''` + url.PathEscape(filename)
 }

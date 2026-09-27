@@ -47,6 +47,7 @@ Integration keys are limited to the scopes they declared:
 | Scope | Covers |
 |---|---|
 | `organization:read` | Org units, locations, departments, roles, users (read-only) |
+| `attachments:read`, `attachments:write` | Upload, download and delete files ([Attachments](attachments.md)) |
 | `people:read`, `people:write` | Employees, documents, skills, onboarding |
 | `payroll:read`, `payroll:write` | Pay rates, pay period exports, payslips |
 | `time:read`, `time:write` | Punches, timesheets, time off |

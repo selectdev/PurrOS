@@ -63,7 +63,6 @@ Files (documents, photos, receipts, payslips, exports) are stored on local disk 
 | `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY` | | Credentials (or an IAM role on AWS) |
 | `STORAGE_S3_FORCE_PATH_STYLE`, `STORAGE_S3_PREFIX` | `false`, | Path-style addressing, and a folder prefix inside the bucket |
 | `STORAGE_S3_SSE`, `STORAGE_S3_KMS_KEY_ID` | | Server-side encryption |
-| `STORAGE_S3_PROXY_UPLOADS` | `false` | Send uploads through the app instead of directly to the bucket |
 | `STORAGE_SIGNED_URL_TTL` | `300` | Seconds a download link stays valid |
 | `STORAGE_MAX_UPLOAD_MB` | `25` | Largest single upload |
 
@@ -77,8 +76,11 @@ See [Email & file storage](email-and-storage.md#file-storage-s3) for bucket setu
 | `PURROS_BACKUP_HOUR` | `2` | Hour of the day (UTC) after which the daily backup runs |
 | `PURROS_BACKUP_KEEP` | `14` | How many backups to keep |
 | `PURROS_BACKUP_PASSPHRASE` | | Encrypt backups with this passphrase |
+| `PURROS_BACKUP_FILES` | `auto` | Include uploaded files: `auto` (only with local storage), `true` or `false` |
+| `PURROS_BACKUP_S3_ENABLED`, `PURROS_BACKUP_S3_*` | `false` | Also upload backups to an S3 bucket. See [Database backups to S3](email-and-storage.md#database-backups-to-s3-optional). |
+| `PURROS_BACKUP_S3_KEEP` | `PURROS_BACKUP_KEEP` | Backups to keep in the bucket |
 
-See [Backups & upgrades](../operations/backups-and-upgrades.md). Uploading backups to S3 directly is planned.
+See [Backups & upgrades](../operations/backups-and-upgrades.md).
 
 ## Notifications
 

@@ -19,6 +19,7 @@ PurrOS is in early development. This is what the API does **today**:
 | **Sign-in & accounts** | Email + password (Argon2id), magic links, authenticator-app 2FA with recovery codes, server-side sessions (idle and absolute timeouts, shared-device mode, origin checks), invitations, password reset, lockout after repeated failures, personal API keys; inviting and managing users and roles with no-escalation rules; company-wide or per-role mandatory 2FA |
 | **Roles & reach** | Every endpoint maps to a permission. Sessions and personal keys act with the person's role; a reach narrower than Everyone limits them to their assigned locations, departments or team. Integration keys keep using scopes |
 | **Employee Area** | `/me`: profile and contact details, punches and corrections, timesheets, shifts, open shifts, swaps, availability, time off, pay history and estimates, payslips, shared documents, announcements, activity history, and a ZIP export of everything |
+| **Attachments & storage** | File uploads (proof, photos, receipts, documents…) streamed to local disk or any S3-compatible bucket, with content-based type checks, size limits, SHA-256 checksums, reach-based access, and signed-URL downloads from S3 |
 | **Email** | SMTP with STARTTLS or implicit TLS, sent by the worker from a queue with retries; invitation, sign-in link and password reset emails |
 | **Platform endpoints** | `/me`, `/features`, `/permissions`, integration self-service (`/integrations/self`, config, health, logs) |
 | **Organization** | Org units, locations (time zone and business-day cut-off), departments, roles with permissions, users with assignments (read-only) |
@@ -34,11 +35,11 @@ PurrOS is in early development. This is what the API does **today**:
 | **Communication** | Announcements with acknowledgments, calendar events, recognitions, display metrics |
 | **Reports & Insights** | KPIs, seven built-in reports (JSON or CSV), rule-based recommendations, KPI alert rules evaluated by the worker |
 | **Webhooks** | Transactional outbox; HMAC-SHA256 signed deliveries; per-record ordering; retries over ~3 days; endpoints auto-disabled after repeated failures; events of disabled features dropped |
-| **CLI** | Guided `setup` and `init`; `status` and `doctor` (secret, SMTP, stock ledger and backup checks); `users`, `roles` and `recover owner` for account recovery; `secret check/rotate`; built-in `backup create/list/verify/inspect/restore/prune` with optional encryption and nightly scheduling; `migrate status`; locations, integrations, API keys and features; `--json`, `--yes` and `--env-file` everywhere |
+| **CLI** | Guided `setup` and `init`; `status` and `doctor` (secret, SMTP, stock ledger and backup checks); `users`, `roles` and `recover owner` for account recovery; `secret check/rotate`; built-in `backup create/list/download/verify/inspect/restore/prune` with optional encryption, uploaded files included, S3 uploads with retention, and nightly scheduling; `storage test/init/verify/migrate`; `migrate status`; locations, integrations, API keys and features; `--json`, `--yes` and `--env-file` everywhere |
 
 Every endpoint is listed in the [endpoint index](../docs/api/endpoints.md).
 
-Still planned: passkeys, single sign-on (OIDC and SAML) and SCIM, the web app, messaging, S3 file storage, scheduled and custom reports, the AI assistant, and backups.
+Still planned: passkeys, single sign-on (OIDC and SAML) and SCIM, the web app, direct browser-to-bucket uploads, messaging, scheduled and custom reports, the AI assistant, and backups.
 
 ## Quick start
 

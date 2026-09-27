@@ -93,7 +93,8 @@ func New(t *testing.T, scopes []string, events []string) *Env {
 	}
 
 	cfg := config.Config{URL: "http://test", Secret: testSecret, RateLimitPerMin: 10_000, IngestRateLimitPerMin: 10_000, MaxBatchSize: 1000,
-		SMTP: config.SMTP{Host: "smtp.test", Port: 587, From: "PurrOS <noreply@test>"}}
+		SMTP:    config.SMTP{Host: "smtp.test", Port: 587, From: "PurrOS <noreply@test>"},
+		Storage: config.Storage{Driver: "local", LocalPath: t.TempDir(), MaxUploadMB: 1, SignedURLTTL: 300}}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	app, err := server.NewApp(cfg, pool, log)
 	if err != nil {

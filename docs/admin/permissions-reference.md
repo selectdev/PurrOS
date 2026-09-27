@@ -21,6 +21,8 @@ The permission each API endpoint needs is listed in the [endpoint index](../api/
 | `webhooks.manage` | Manage webhook endpoints and view deliveries |
 | `api_keys.personal` | Create personal API keys, which act with the user's own role and reach |
 | `audit.read` | View the audit log |
+| `attachments.read` | View uploaded files (proof, photos, receipts…) for employees and locations within reach |
+| `attachments.manage` | Delete uploaded files within reach |
 
 Switching features on and off is **Owner-only** and isn't a grantable permission.
 

@@ -98,6 +98,15 @@ Use `rotate` if `PURROS_SECRET` may have leaked:
 
 Keep the old secret as long as you keep backups made before the rotation.
 
+### `storage`
+
+```bash
+purros storage test [--backups]            # write, read and delete a test file (--backups: the backup bucket)
+purros storage init [--backups]            # create the S3 bucket if it doesn't exist
+purros storage verify [--checksums]        # every attachment's file is in storage (and matches, with --checksums)
+purros storage migrate --to s3|local       # copy all files to the other storage; resumable
+```
+
 ### `email`
 
 ```bash
@@ -135,18 +144,22 @@ purros recover owner new-admin@example.com --create --name "Pat Lee"
 
 ## Backups
 
-Backups are complete and consistent, and taken while PurrOS keeps running. PurrOS makes them itself, so no `pg_dump` is needed. Each is a single `.purros-backup` file, optionally encrypted with a passphrase. See [Backups & upgrades](backups-and-upgrades.md) for how they work and how to schedule them.
+Backups are complete and consistent, and taken while PurrOS keeps running. PurrOS makes them itself, so no `pg_dump` is needed. Each is a single `.purros-backup` file, optionally encrypted, and optionally including uploaded files. With `PURROS_BACKUP_S3_ENABLED`, backups are also uploaded to an S3 bucket. See [Backups & upgrades](backups-and-upgrades.md) for how they work and how to schedule them.
 
 ```bash
 purros backup create [--dir DIR | --out FILE] [--encrypt] [--passphrase-file F] [--keep N]
-purros backup list [--dir DIR]                     # files, and recent backup runs
-purros backup verify <file>                        # complete and undamaged?
-purros backup inspect <file>                       # what it contains, and whether PURROS_SECRET matches
-purros backup restore <file> [--replace] [--no-safety-backup]
-purros backup prune [--keep N] [--older-than 30d] [--dry-run]
+                     [--files | --no-files] [--no-upload]
+purros backup list [--dir DIR | --remote]          # files (or the S3 bucket), and recent backup runs
+purros backup download <name> [--out PATH]         # copy a backup from the S3 bucket
+purros backup verify <file | s3:name>              # complete and undamaged?
+purros backup inspect <file | s3:name>             # what it contains, and whether PURROS_SECRET matches
+purros backup restore <file | s3:name> [--replace] [--no-safety-backup]
+purros backup prune [--keep N] [--older-than 30d] [--remote] [--dry-run]
 ```
 
-The default directory is `PURROS_BACKUP_DIR`, or `./backups`. The passphrase comes from `--passphrase-file`, `PURROS_BACKUP_PASSPHRASE`, or a prompt.
+- **Where backups go:** the default directory is `PURROS_BACKUP_DIR`, or `./backups` when S3 uploads are off. With S3 on and no directory, backups go only to the bucket.
+- **Remote backups:** refer to a backup in the bucket as `s3:<name>`.
+- **Passphrase:** it comes from `--passphrase-file`, then `PURROS_BACKUP_PASSPHRASE`, then a prompt.
 
 ## Management
 
@@ -167,6 +180,5 @@ The default directory is `PURROS_BACKUP_DIR`, or `./backups`. The passphrase com
 | `features purge <key>` | Permanently delete a disabled feature's data |
 | `export` | Export all company data as JSON and CSV |
 | `recalculate` | Rebuild derived data, e.g. after changing usage recipes |
-| `storage test`, `storage migrate --to s3` | File storage checks and migration |
 | `generate-vapid` | Keys for web push notifications |
 | `anonymize --employee …` | Anonymize a former employee after the retention period |

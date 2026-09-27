@@ -108,3 +108,6 @@ const (
 
 // PunchCorrection prefixes punch correction requests.
 const PunchCorrection = "pcr"
+
+// Attachment prefixes uploaded files.
+const Attachment = "att"

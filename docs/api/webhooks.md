@@ -117,6 +117,9 @@ Events belong to their feature. Events of switched-off features aren't sent.
 ### Organization
 `location.created`, `location.updated`
 
+### Attachments
+`attachment.uploaded`, `attachment.deleted`
+
 ### People & HR
 `employee.created`, `employee.updated`, `employee.transferred`, `employee.terminated`, `employee.archived`, `pay_rate.changed`, `document.expiring`, `certification.expiring`
 

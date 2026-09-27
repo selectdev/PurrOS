@@ -14,6 +14,7 @@ services:
       PURROS_BACKUP_DIR: ${PURROS_BACKUP_DIR-/backups}
     volumes:
       - backups:/backups
+      - files:/data/files      # uploaded files (STORAGE_DRIVER=local)
     ports:
       - "127.0.0.1:8080:8080"   # put a reverse proxy with TLS in front
     depends_on:
@@ -46,3 +47,4 @@ services:
 volumes:
   db-data:
   backups:
+  files:

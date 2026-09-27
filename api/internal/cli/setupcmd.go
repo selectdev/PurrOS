@@ -416,6 +416,13 @@ func (a *app) configCmd() *cobra.Command {
 				"SMTP_PASSWORD": mask(cfg.SMTP.Password), "SMTP_FROM": cfg.SMTP.From,
 				"PURROS_BACKUP_DIR": cfg.Backup.Dir, "PURROS_BACKUP_HOUR": fmt.Sprint(cfg.Backup.HourUTC),
 				"PURROS_BACKUP_KEEP": fmt.Sprint(cfg.Backup.Keep), "PURROS_BACKUP_PASSPHRASE": mask(cfg.Backup.Passphrase),
+				"PURROS_BACKUP_FILES": cfg.Backup.Files, "PURROS_BACKUP_S3_ENABLED": fmt.Sprint(cfg.Backup.S3Enabled),
+				"PURROS_BACKUP_S3_BUCKET": cfg.Backup.S3.Bucket, "PURROS_BACKUP_S3_PREFIX": cfg.Backup.S3.Prefix,
+				"PURROS_BACKUP_S3_ENDPOINT": cfg.Backup.S3.Endpoint, "PURROS_BACKUP_S3_SECRET_ACCESS_KEY": mask(cfg.Backup.S3.SecretAccessKey),
+				"PURROS_BACKUP_S3_KEEP": fmt.Sprint(cfg.Backup.S3Keep),
+				"STORAGE_DRIVER":        cfg.Storage.Driver, "STORAGE_LOCAL_PATH": cfg.Storage.LocalPath, "STORAGE_S3_BUCKET": cfg.Storage.S3.Bucket,
+				"STORAGE_S3_ENDPOINT": cfg.Storage.S3.Endpoint, "STORAGE_S3_SECRET_ACCESS_KEY": mask(cfg.Storage.S3.SecretAccessKey),
+				"STORAGE_MAX_UPLOAD_MB": fmt.Sprint(cfg.Storage.MaxUploadMB),
 			}
 			return a.emit(vals, func() {
 				keys := make([]string, 0, len(vals))

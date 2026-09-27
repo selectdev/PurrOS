@@ -20,6 +20,8 @@ var Permissions = []Permission{
 	{"webhooks.manage", "core", "Manage webhook endpoints and view deliveries"},
 	{"api_keys.personal", "core", "Create personal API keys"},
 	{"audit.read", "core", "View the audit log"},
+	{"attachments.read", "core", "View uploaded files (proof, photos, receipts…) within reach"},
+	{"attachments.manage", "core", "Delete uploaded files within reach"},
 
 	// People & HR
 	{"employees.read", "people", "View employee profiles"},
@@ -129,6 +131,8 @@ type Scope struct {
 
 var Scopes = []Scope{
 	{"organization:read", "core", "Org units, locations, departments, roles, users (read-only)"},
+	{"attachments:read", "core", "Read and download uploaded files"},
+	{"attachments:write", "core", "Upload and delete files"},
 	{"people:read", "people", "Read employees, documents, skills"},
 	{"people:write", "people", "Create and update employees"},
 	{"people:sensitive", "people", "Sensitive employee fields (needs Owner approval)"},
@@ -170,6 +174,7 @@ func ScopeFeature(scope string) (string, bool) {
 // Events maps each webhook event type to its feature (docs/api/webhooks.md).
 var Events = map[string]string{
 	"location.created": "core", "location.updated": "core",
+	"attachment.uploaded": "core", "attachment.deleted": "core",
 
 	"employee.created": "people", "employee.updated": "people", "employee.transferred": "people",
 	"employee.terminated": "people", "employee.archived": "people", "pay_rate.changed": "people",

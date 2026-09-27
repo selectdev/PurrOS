@@ -54,6 +54,8 @@ type Route struct {
 	// call the route; AllowMFAEnroll lets users who must set up 2FA call it.
 	AllowMFAPending bool
 	AllowMFAEnroll  bool
+	// Stream leaves the request body unread for the handler (uploads).
+	Stream bool
 	// Filters are extra query parameter names the handler filters by,
 	// besides those in Query.
 	Filters []string

@@ -18,6 +18,7 @@ import (
 	"github.com/selectdev/purros/api/internal/features"
 	"github.com/selectdev/purros/api/internal/httpx"
 	"github.com/selectdev/purros/api/internal/modules/account"
+	"github.com/selectdev/purros/api/internal/modules/attachments"
 	"github.com/selectdev/purros/api/internal/modules/cash"
 	"github.com/selectdev/purros/api/internal/modules/communication"
 	"github.com/selectdev/purros/api/internal/modules/employeearea"
@@ -33,6 +34,7 @@ import (
 	"github.com/selectdev/purros/api/internal/modules/scheduling"
 	"github.com/selectdev/purros/api/internal/modules/timeclock"
 	"github.com/selectdev/purros/api/internal/secure"
+	"github.com/selectdev/purros/api/internal/storage"
 )
 
 // NewApp wires dependencies and registers every module's routes.
@@ -49,9 +51,14 @@ func NewApp(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (*httpx.App
 		}
 		limiter = httpx.NewRedisLimiter(redis.NewClient(opts))
 	}
+	store, err := storage.New(cfg.Storage)
+	if err != nil {
+		return nil, err
+	}
 	router := &httpx.Router{}
 	router.Add(platform.Routes()...)
 	router.Add(account.Routes()...)
+	router.Add(attachments.Routes()...)
 	router.Add(employeearea.Routes()...)
 	router.Add(employeearea.CorrectionRoutes()...)
 	router.Add(organization.Routes()...)
@@ -85,6 +92,7 @@ func NewApp(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (*httpx.App
 		Log:      log,
 		Router:   router,
 		Now:      time.Now,
+		Storage:  store,
 	}, nil
 }
 

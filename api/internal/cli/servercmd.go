@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/smtp"
@@ -22,6 +23,7 @@ import (
 	"github.com/selectdev/purros/api/internal/modules/platform"
 	"github.com/selectdev/purros/api/internal/secure"
 	"github.com/selectdev/purros/api/internal/server"
+	"github.com/selectdev/purros/api/internal/storage"
 	"github.com/selectdev/purros/api/internal/webhooks"
 	"github.com/spf13/cobra"
 )
@@ -100,11 +102,25 @@ func jobs(cfg config.Config, pool *pgxpool.Pool, fs *features.Store, log *slog.L
 	} else {
 		log.Info("email is off: SMTP_HOST is not set")
 	}
-	if cfg.Backup.Dir != "" {
-		out = append(out, backup.Job(pool, backup.Schedule{Dir: cfg.Backup.Dir, HourUTC: cfg.Backup.HourUTC, Keep: cfg.Backup.Keep,
-			Passphrase: cfg.Backup.Passphrase, Version: platform.Version, SecretFP: secure.Fingerprint(cfg.Secret)}, log))
+	if cfg.Backup.Scheduled() {
+		s := backup.Schedule{Dir: cfg.Backup.Dir, HourUTC: cfg.Backup.HourUTC, Keep: cfg.Backup.Keep, RemoteKeep: cfg.Backup.S3Keep,
+			Passphrase: cfg.Backup.Passphrase, Version: platform.Version, SecretFP: secure.Fingerprint(cfg.Secret)}
+		var err error
+		if cfg.Backup.S3Enabled {
+			if s.Remote, err = storage.NewS3(cfg.Backup.S3); err != nil {
+				log.Error("scheduled backups are off: backup bucket", "err", err)
+				return out
+			}
+		}
+		if cfg.IncludeFiles() {
+			if s.Files, err = storage.New(cfg.Storage); err != nil {
+				log.Error("scheduled backups are off: file storage", "err", err)
+				return out
+			}
+		}
+		out = append(out, backup.Job(pool, s, log))
 	} else {
-		log.Info("scheduled backups are off: PURROS_BACKUP_DIR is not set")
+		log.Info("scheduled backups are off: set PURROS_BACKUP_DIR or PURROS_BACKUP_S3_ENABLED")
 	}
 	return out
 }
@@ -204,6 +220,7 @@ type statusReport struct {
 	LastBackup    *backupRunJSON  `json:"lastBackup"`
 	Backups       map[string]any  `json:"backupSchedule"`
 	Email         map[string]any  `json:"email"`
+	Storage       map[string]any  `json:"storage"`
 	Features      map[string]bool `json:"features"`
 }
 
@@ -258,8 +275,22 @@ func (a *app) statusCmd() *cobra.Command {
 					x := runs[0]
 					r.LastBackup = &backupRunJSON{Kind: x.Kind, Status: x.Status, File: x.File, Size: x.Size, Error: x.Error, StartedAt: x.StartedAt, Finished: x.FinishedAt}
 				}
-				r.Backups = map[string]any{"enabled": cfg.Backup.Dir != "", "dir": cfg.Backup.Dir, "hourUtc": cfg.Backup.HourUTC,
-					"keep": cfg.Backup.Keep, "encrypted": cfg.Backup.Passphrase != ""}
+				r.Backups = map[string]any{"enabled": cfg.Backup.Scheduled(), "dir": cfg.Backup.Dir, "hourUtc": cfg.Backup.HourUTC,
+					"keep": cfg.Backup.Keep, "encrypted": cfg.Backup.Passphrase != "", "files": cfg.IncludeFiles(), "s3": ""}
+				if cfg.Backup.S3Enabled {
+					r.Backups["s3"] = "s3://" + cfg.Backup.S3.Bucket + "/" + cfg.Backup.S3.Prefix
+					r.Backups["s3Keep"] = cfg.Backup.S3Keep
+				}
+				r.Storage = map[string]any{"driver": cfg.Storage.Driver}
+				if cfg.Storage.Driver == "s3" {
+					r.Storage["location"] = "s3://" + cfg.Storage.S3.Bucket + "/" + cfg.Storage.S3.Prefix
+				} else {
+					r.Storage["location"] = cfg.Storage.LocalPath
+				}
+				var files int
+				var bytes int64
+				_ = pool.QueryRow(ctx, `SELECT count(*), coalesce(sum(size_bytes), 0) FROM attachments WHERE deleted_at IS NULL`).Scan(&files, &bytes)
+				r.Storage["attachments"], r.Storage["bytes"] = files, bytes
 				r.Email = map[string]any{"configured": cfg.SMTP.Enabled(), "host": cfg.SMTP.Host}
 				store := features.NewStore(pool)
 				for _, f := range features.Registry {
@@ -289,6 +320,7 @@ func (a *app) printStatus(r statusReport) {
 		{"Integrations", strconv.Itoa(r.Counts["integrations"])},
 		{"Queues", fmt.Sprintf("%d events, %d webhook deliveries, %d emails waiting", r.Queues["eventsWaiting"], r.Queues["webhooksDue"], r.Queues["emailsQueued"])},
 		{"Email", map[bool]string{true: "configured (" + fmt.Sprint(r.Email["host"]) + ")", false: "not configured"}[r.Email["configured"] == true]},
+		{"File storage", fmt.Sprintf("%v at %v: %v attachment(s), %s", r.Storage["driver"], r.Storage["location"], r.Storage["attachments"], humanBytes(toInt64(r.Storage["bytes"])))},
 		{"Scheduled backups", backupScheduleText(r.Backups)},
 		{"Last backup", lastBackupText(r.LastBackup)},
 	})
@@ -305,13 +337,35 @@ func (a *app) printStatus(r statusReport) {
 
 func backupScheduleText(b map[string]any) string {
 	if b["enabled"] != true {
-		return "off (set PURROS_BACKUP_DIR)"
+		return "off (set PURROS_BACKUP_DIR or PURROS_BACKUP_S3_ENABLED)"
 	}
-	s := fmt.Sprintf("daily at %02d:00 UTC to %v, keeping %v", b["hourUtc"], b["dir"], b["keep"])
+	var where []string
+	if b["dir"] != "" {
+		where = append(where, fmt.Sprintf("%v (keeping %v)", b["dir"], b["keep"]))
+	}
+	if b["s3"] != "" {
+		where = append(where, fmt.Sprintf("%v (keeping %v)", b["s3"], b["s3Keep"]))
+	}
+	s := fmt.Sprintf("daily at %02d:00 UTC to %s", b["hourUtc"], strings.Join(where, " and "))
+	if b["files"] == true {
+		s += ", with uploaded files"
+	}
 	if b["encrypted"] == true {
 		s += ", encrypted"
 	}
 	return s
+}
+
+func toInt64(v any) int64 {
+	switch x := v.(type) {
+	case int64:
+		return x
+	case int:
+		return int64(x)
+	case float64:
+		return int64(x)
+	}
+	return 0
 }
 
 func lastBackupText(r *backupRunJSON) string {
@@ -491,6 +545,22 @@ func runDoctor(ctx context.Context) []check {
 	}
 	add("location time zones", err)
 
+	if store, err := storage.New(cfg.Storage); err != nil {
+		add("file storage", err)
+	} else {
+		add("file storage", storageCheck(ctx, store))
+	}
+	if cfg.Backup.S3Enabled {
+		r, err := storage.NewS3(cfg.Backup.S3)
+		if err == nil {
+			_, err = r.List(ctx, "")
+			if err != nil {
+				err = fmt.Errorf("can't list %s: %w", r.Describe(), err)
+			}
+		}
+		add("backup bucket (S3)", err)
+	}
+
 	runs, err := backup.Last(ctx, pool, 20)
 	if err == nil {
 		var lastOK *time.Time
@@ -502,12 +572,14 @@ func runDoctor(ctx context.Context) []check {
 			}
 		}
 		switch {
-		case cfg.Backup.Dir == "" && lastOK == nil:
-			err = warn("no backups yet: set PURROS_BACKUP_DIR or run `purros backup create`")
-		case cfg.Backup.Dir != "" && (lastOK == nil || time.Since(*lastOK) > 36*time.Hour):
+		case !cfg.Backup.Scheduled() && lastOK == nil:
+			err = warn("no backups yet: set PURROS_BACKUP_DIR or PURROS_BACKUP_S3_ENABLED, or run `purros backup create`")
+		case cfg.Backup.Scheduled() && (lastOK == nil || time.Since(*lastOK) > 36*time.Hour):
 			err = errors.New("scheduled backups are on but none succeeded in the last 36 hours (is the worker running?)")
 		case len(runs) > 0 && runs[0].Status == "failed":
 			err = warn("the latest backup failed: " + deref(runs[0].Error))
+		case len(runs) > 0 && runs[0].UploadError != nil:
+			err = warn("the latest backup wasn't uploaded to S3: " + *runs[0].UploadError)
 		}
 	}
 	add("backups", err)
@@ -577,4 +649,25 @@ func smtpCheck(s config.SMTP) error {
 		return errors.New("the server doesn't offer STARTTLS (required by SMTP_REQUIRE_TLS)")
 	}
 	return c.Quit()
+}
+
+// storageCheck writes, reads and deletes a small test file.
+func storageCheck(ctx context.Context, d storage.Driver) error {
+	key := "purros-check/" + time.Now().UTC().Format("20060102T150405.000000000")
+	payload := "purros storage check"
+	if err := d.Put(ctx, key, strings.NewReader(payload), int64(len(payload)), "text/plain"); err != nil {
+		return fmt.Errorf("can't write to %s: %w", d.Describe(), err)
+	}
+	defer d.Delete(context.WithoutCancel(ctx), key) //nolint:errcheck
+	body, _, err := d.Get(ctx, key)
+	if err != nil {
+		return fmt.Errorf("can't read from %s: %w", d.Describe(), err)
+	}
+	defer body.Close()
+	got := make([]byte, len(payload)+1)
+	n, _ := io.ReadFull(body, got)
+	if string(got[:n]) != payload {
+		return fmt.Errorf("%s returned different content than was written", d.Describe())
+	}
+	return d.Delete(ctx, key)
 }

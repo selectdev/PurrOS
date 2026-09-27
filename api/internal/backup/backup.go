@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/selectdev/purros/api/internal/db"
+	"github.com/selectdev/purros/api/internal/storage"
 )
 
 // FormatVersion is the archive layout version.
@@ -50,7 +51,26 @@ type Manifest struct {
 	SecretFingerprint string              `json:"secretFingerprint"`
 	Tables            []Table             `json:"tables"`
 	Sequences         map[string]Sequence `json:"sequences"`
-	Encrypted         bool                `json:"-"`
+	// Files are uploaded attachments, when the backup includes them.
+	Files        []FileEntry `json:"files,omitempty"`
+	MissingFiles []string    `json:"missingFiles,omitempty" doc:"Attachments whose file wasn't in storage"`
+	Encrypted    bool        `json:"-"`
+}
+
+// FileEntry is a stored file included in the backup.
+type FileEntry struct {
+	Key    string `json:"key"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
+// FileBytes is the total size of included files.
+func (m Manifest) FileBytes() int64 {
+	var n int64
+	for _, f := range m.Files {
+		n += f.Size
+	}
+	return n
 }
 
 type Table struct {
@@ -80,6 +100,8 @@ type Options struct {
 	Passphrase        string // encrypt when set
 	PurrOSVersion     string
 	SecretFingerprint string
+	// Files, when set, adds the uploaded files it holds to the backup.
+	Files storage.Driver
 }
 
 // Create writes a backup of the database to w.
@@ -175,6 +197,12 @@ func Create(ctx context.Context, pool *pgxpool.Pool, w io.Writer, opt Options) (
 		m.Sequences[s] = st
 	}
 
+	if opt.Files != nil {
+		if err := addFiles(ctx, tx, tw, opt.Files, &m); err != nil {
+			return m, err
+		}
+	}
+
 	mb, _ := json.MarshalIndent(m, "", "  ")
 	if err := tw.WriteHeader(&tar.Header{Name: "manifest.json", Mode: 0o600, Size: int64(len(mb)), ModTime: m.CreatedAt}); err != nil {
 		return m, err
@@ -194,6 +222,43 @@ func Create(ctx context.Context, pool *pgxpool.Pool, w io.Writer, opt Options) (
 		}
 	}
 	return m, nil
+}
+
+// addFiles copies every live attachment's file into the archive.
+func addFiles(ctx context.Context, tx pgx.Tx, tw *tar.Writer, files storage.Driver, m *Manifest) error {
+	rows, err := tx.Query(ctx, `SELECT storage_key FROM attachments WHERE deleted_at IS NULL ORDER BY storage_key`)
+	if err != nil {
+		return err
+	}
+	keys, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		body, obj, err := files.Get(ctx, key)
+		if errors.Is(err, storage.ErrNotFound) {
+			m.MissingFiles = append(m.MissingFiles, key)
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read %s from storage: %w", key, err)
+		}
+		h := sha256.New()
+		err = tw.WriteHeader(&tar.Header{Name: "files/" + key, Mode: 0o600, Size: obj.Size, ModTime: m.CreatedAt})
+		if err == nil {
+			var n int64
+			n, err = io.Copy(tw, io.TeeReader(io.LimitReader(body, obj.Size), h))
+			if err == nil && n != obj.Size {
+				err = fmt.Errorf("%s changed size while being backed up", key)
+			}
+		}
+		body.Close()
+		if err != nil {
+			return err
+		}
+		m.Files = append(m.Files, FileEntry{Key: key, Size: obj.Size, SHA256: hex.EncodeToString(h.Sum(nil))})
+	}
+	return nil
 }
 
 func listTables(ctx context.Context, q db.Querier) ([]string, error) {
@@ -288,6 +353,7 @@ func Verify(path, pass string) (Manifest, error) {
 	}
 	defer closeFn()
 	sums := map[string]string{}
+	fileSums := map[string]string{}
 	found := false
 	for {
 		hdr, err := tr.Next()
@@ -309,6 +375,12 @@ func Verify(path, pass string) (Manifest, error) {
 				return m, damaged(err)
 			}
 			sums[strings.TrimSuffix(strings.TrimPrefix(hdr.Name, "data/"), ".tsv")] = hex.EncodeToString(h.Sum(nil))
+		case strings.HasPrefix(hdr.Name, "files/"):
+			h := sha256.New()
+			if _, err := io.Copy(h, tr); err != nil {
+				return m, damaged(err)
+			}
+			fileSums[strings.TrimPrefix(hdr.Name, "files/")] = hex.EncodeToString(h.Sum(nil))
 		}
 	}
 	if !found {
@@ -325,6 +397,14 @@ func Verify(path, pass string) (Manifest, error) {
 		}
 		if got != t.SHA256 {
 			return m, fmt.Errorf("table %s doesn't match its checksum: the backup is damaged", t.Name)
+		}
+	}
+	for _, f := range m.Files {
+		if err := storage.CheckKey(f.Key); err != nil {
+			return m, err
+		}
+		if fileSums[f.Key] != f.SHA256 {
+			return m, fmt.Errorf("file %s is missing or doesn't match its checksum: the backup is damaged", f.Key)
 		}
 	}
 	return m, nil
@@ -351,6 +431,9 @@ type RestoreOptions struct {
 	Replace bool
 	// Progress, if set, is told about each step.
 	Progress func(step string)
+	// Files receives the uploaded files in the backup. Without it they are
+	// skipped.
+	Files storage.Driver
 }
 
 // HasData reports whether the database holds a set-up company.
@@ -399,7 +482,10 @@ func Restore(ctx context.Context, pool *pgxpool.Pool, path string, opt RestoreOp
 	}
 
 	step(fmt.Sprintf("Loading %d rows into %d tables", m.Rows(), len(m.Tables)))
-	if err := load(ctx, pool, path, opt.Passphrase, m); err != nil {
+	if len(m.Files) > 0 && opt.Files != nil {
+		step(fmt.Sprintf("Restoring %d uploaded files to %s", len(m.Files), opt.Files.Describe()))
+	}
+	if err := load(ctx, pool, path, opt.Passphrase, m, opt.Files); err != nil {
 		return m, err
 	}
 
@@ -414,7 +500,11 @@ func Restore(ctx context.Context, pool *pgxpool.Pool, path string, opt RestoreOp
 	return m, nil
 }
 
-func load(ctx context.Context, pool *pgxpool.Pool, path, pass string, m Manifest) error {
+func load(ctx context.Context, pool *pgxpool.Pool, path, pass string, m Manifest, files storage.Driver) error {
+	fileSums := map[string]string{}
+	for _, f := range m.Files {
+		fileSums[f.Key] = f.SHA256
+	}
 	byName := map[string]Table{}
 	for _, t := range m.Tables {
 		byName[t.Name] = t
@@ -472,6 +562,20 @@ func load(ctx context.Context, pool *pgxpool.Pool, path, pass string, m Manifest
 			}
 			if err != nil {
 				return damaged(err)
+			}
+			if key, ok := strings.CutPrefix(hdr.Name, "files/"); ok {
+				want, listed := fileSums[key]
+				if files == nil || !listed {
+					continue
+				}
+				h := sha256.New()
+				if err := files.Put(ctx, key, io.TeeReader(tr, h), hdr.Size, ""); err != nil {
+					return fmt.Errorf("restore file %s: %w", key, err)
+				}
+				if hex.EncodeToString(h.Sum(nil)) != want {
+					return fmt.Errorf("file %s changed while restoring: the backup file is being modified", key)
+				}
+				continue
 			}
 			if !strings.HasPrefix(hdr.Name, "data/") {
 				continue

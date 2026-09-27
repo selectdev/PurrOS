@@ -117,7 +117,7 @@ optionally loaded from a file with --env-file.`,
 		}
 	}
 	add("server", a.serveCmd(), a.workerCmd(), a.migrateCmd(), a.statusCmd(), a.doctorCmd())
-	add("setup", a.initCmd(), a.setupCmd(), a.configCmd(), a.secretCmd(), a.emailCmd())
+	add("setup", a.initCmd(), a.setupCmd(), a.configCmd(), a.secretCmd(), a.emailCmd(), a.storageCmd())
 	add("people", a.usersCmd(), a.rolesCmd(), a.recoverCmd())
 	add("data", a.backupCmd())
 	add("manage", a.locationsCmd(), a.integrationsCmd(), a.apiKeysCmd(), a.featuresCmd())

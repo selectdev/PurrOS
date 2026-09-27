@@ -79,6 +79,17 @@ Conventions used throughout:
 | `POST /integrations/self/health` | integration key | — | — | Send a heartbeat and status message |
 | `POST /integrations/self/logs` | integration key | — | — | Add a log message shown in the admin UI |
 
+## Attachments
+
+| Method & path | Integration key | People | Feature | Description |
+|---|---|---|---|---|
+| `GET /attachments` | `attachments:read` | `attachments.read` | — | List attachments |
+| `POST /attachments` | `attachments:write` | anyone | — | Upload a file |
+| `GET /attachments/{id}` | `attachments:read` | uploader, the employee concerned, or `attachments.read` | — | Get an attachment's details |
+| `DELETE /attachments/{id}` | `attachments:write` | uploader, or `attachments.manage` | — | Delete an attachment |
+| `GET /attachments/{id}/content` | `attachments:read` | uploader, the employee concerned, or `attachments.read` | — | Download an attachment |
+| `GET /me/attachments` | — | self | — | Files you uploaded or that concern you |
+
 ## Organization
 
 | Method & path | Integration key | People | Feature | Description |

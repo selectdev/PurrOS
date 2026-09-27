@@ -28,6 +28,44 @@ type Config struct {
 	SMTP SMTP
 
 	Backup Backup
+
+	Storage Storage
+}
+
+// Storage configures where uploaded files live (STORAGE_*).
+type Storage struct {
+	Driver       string // STORAGE_DRIVER: local (default) or s3
+	LocalPath    string // STORAGE_LOCAL_PATH (default /data/files)
+	S3           S3     // STORAGE_S3_*
+	SignedURLTTL int    // STORAGE_SIGNED_URL_TTL seconds (default 300)
+	MaxUploadMB  int    // STORAGE_MAX_UPLOAD_MB (default 25)
+}
+
+// S3 is an S3-compatible bucket.
+type S3 struct {
+	Bucket          string
+	Region          string
+	Endpoint        string // empty for AWS
+	AccessKeyID     string // empty: environment or instance role credentials
+	SecretAccessKey string
+	ForcePathStyle  bool
+	Prefix          string
+	SSE             string // AES256 or aws:kms
+	KMSKeyID        string
+}
+
+func loadS3(prefix string) S3 {
+	return S3{
+		Bucket:          os.Getenv(prefix + "BUCKET"),
+		Region:          os.Getenv(prefix + "REGION"),
+		Endpoint:        os.Getenv(prefix + "ENDPOINT"),
+		AccessKeyID:     os.Getenv(prefix + "ACCESS_KEY_ID"),
+		SecretAccessKey: os.Getenv(prefix + "SECRET_ACCESS_KEY"),
+		ForcePathStyle:  envBool(prefix+"FORCE_PATH_STYLE", false),
+		Prefix:          os.Getenv(prefix + "PREFIX"),
+		SSE:             os.Getenv(prefix + "SSE"),
+		KMSKeyID:        os.Getenv(prefix + "KMS_KEY_ID"),
+	}
 }
 
 // Backup configures scheduled backups. They are off when Dir is empty.
@@ -36,7 +74,17 @@ type Backup struct {
 	HourUTC    int    // PURROS_BACKUP_HOUR (default 2)
 	Keep       int    // PURROS_BACKUP_KEEP (default 14)
 	Passphrase string // PURROS_BACKUP_PASSPHRASE: encrypt backups when set
+	// Files says whether backups include uploaded files: auto (default:
+	// only with local storage), true or false. PURROS_BACKUP_FILES
+	Files string
+	// S3 uploads every backup to a bucket (PURROS_BACKUP_S3_*).
+	S3Enabled bool // PURROS_BACKUP_S3_ENABLED
+	S3        S3
+	S3Keep    int // PURROS_BACKUP_S3_KEEP (default PURROS_BACKUP_KEEP)
 }
+
+// Scheduled reports whether the worker makes daily backups.
+func (b Backup) Scheduled() bool { return b.Dir != "" || b.S3Enabled }
 
 // SMTP configures outgoing email. Email is off when Host is empty.
 type SMTP struct {
@@ -77,6 +125,16 @@ func Load(requireSecret bool) (Config, error) {
 			HourUTC:    envInt("PURROS_BACKUP_HOUR", 2),
 			Keep:       envInt("PURROS_BACKUP_KEEP", 14),
 			Passphrase: os.Getenv("PURROS_BACKUP_PASSPHRASE"),
+			Files:      env("PURROS_BACKUP_FILES", "auto"),
+			S3Enabled:  envBool("PURROS_BACKUP_S3_ENABLED", false),
+			S3:         loadS3("PURROS_BACKUP_S3_"),
+		},
+		Storage: Storage{
+			Driver:       env("STORAGE_DRIVER", "local"),
+			LocalPath:    env("STORAGE_LOCAL_PATH", "/data/files"),
+			S3:           loadS3("STORAGE_S3_"),
+			SignedURLTTL: envInt("STORAGE_SIGNED_URL_TTL", 300),
+			MaxUploadMB:  envInt("STORAGE_MAX_UPLOAD_MB", 25),
 		},
 		SMTP: SMTP{
 			Host:            os.Getenv("SMTP_HOST"),
@@ -94,6 +152,27 @@ func Load(requireSecret bool) (Config, error) {
 	var errs []error
 	if c.DatabaseURL == "" {
 		errs = append(errs, errors.New("DATABASE_URL is required"))
+	}
+	c.Backup.S3Keep = envInt("PURROS_BACKUP_S3_KEEP", c.Backup.Keep)
+	if c.Backup.S3.Prefix == "" {
+		c.Backup.S3.Prefix = "purros-backups/"
+	}
+	switch c.Storage.Driver {
+	case "local":
+	case "s3":
+		if c.Storage.S3.Bucket == "" {
+			errs = append(errs, errors.New("STORAGE_S3_BUCKET is required when STORAGE_DRIVER=s3"))
+		}
+	default:
+		errs = append(errs, fmt.Errorf("STORAGE_DRIVER must be local or s3, got %q", c.Storage.Driver))
+	}
+	if c.Backup.S3Enabled && c.Backup.S3.Bucket == "" {
+		errs = append(errs, errors.New("PURROS_BACKUP_S3_BUCKET is required when PURROS_BACKUP_S3_ENABLED=true"))
+	}
+	switch c.Backup.Files {
+	case "auto", "true", "false":
+	default:
+		errs = append(errs, errors.New("PURROS_BACKUP_FILES must be auto, true or false"))
 	}
 	if c.Backup.HourUTC < 0 || c.Backup.HourUTC > 23 {
 		errs = append(errs, errors.New("PURROS_BACKUP_HOUR must be between 0 and 23"))
@@ -136,4 +215,15 @@ func envBool(key string, def bool) bool {
 		panic(fmt.Sprintf("%s must be true or false, got %q", key, v))
 	}
 	return b
+}
+
+// IncludeFiles reports whether backups should contain uploaded files.
+func (c Config) IncludeFiles() bool {
+	switch c.Backup.Files {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	return c.Storage.Driver == "local"
 }

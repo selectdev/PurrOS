@@ -127,3 +127,7 @@ func MFAEnrollmentRequired() *Problem {
 func OutOfReach(detail string) *Problem {
 	return newProblem(http.StatusForbidden, "out_of_reach", "Outside your reach", detail)
 }
+
+func TooLarge(detail string) *Problem {
+	return newProblem(http.StatusRequestEntityTooLarge, "payload_too_large", "Too large", detail)
+}

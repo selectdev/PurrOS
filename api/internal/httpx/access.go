@@ -309,3 +309,36 @@ func (c *Ctx) RateLimit(key string, limit int, window time.Duration) error {
 	}
 	return nil
 }
+
+// CheckPermissionReach checks, inside a handler, that a person holds perm
+// with a reach covering a record's location or employee. A record with
+// neither needs reach Everyone.
+func (c *Ctx) CheckPermissionReach(perm, locationID, employeeID string) error {
+	u := c.Principal.User
+	if u == nil {
+		return Forbidden("This endpoint is only available to people.")
+	}
+	if u.Owner {
+		return nil
+	}
+	reach, ok := u.Perms[perm]
+	if !ok {
+		return Forbidden("Your role doesn't have the " + perm + " permission.")
+	}
+	if reach == ReachEveryone {
+		return nil
+	}
+	saved := c.limit
+	c.limit = &reachLimit{perm: perm, reach: reach}
+	defer func() { c.limit = saved }()
+	switch {
+	case employeeID != "":
+		if err := c.CheckEmployeeReach(employeeID); err == nil || locationID == "" {
+			return err
+		}
+		return c.CheckLocationReach(locationID)
+	case locationID != "":
+		return c.CheckLocationReach(locationID)
+	}
+	return OutOfReach("Your " + perm + " permission covers " + reachWords[reach] + " only, and this record isn't tied to a location or employee.")
+}
