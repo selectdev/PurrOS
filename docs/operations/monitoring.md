@@ -5,7 +5,7 @@
 | Endpoint | Meaning |
 |---|---|
 | `GET /api/health` | Liveness: the app process is running |
-| `GET /api/ready` | Readiness: the database and Redis are reachable, and migrations are up to date |
+| `GET /api/ready` | Readiness: the database is reachable and migrations are up to date |
 
 Point your load balancer or uptime monitor at `/api/ready`.
 
@@ -21,7 +21,7 @@ Set `LOG_LEVEL=debug` temporarily when investigating a problem. API errors retur
 
 ## Metrics
 
-With `METRICS_ENABLED=true`, Prometheus metrics are served at `/api/metrics`. Restrict access to this path at your proxy. Useful ones:
+*(Planned.)* With `METRICS_ENABLED=true`, Prometheus metrics are served at `/api/metrics`. Restrict access to this path at your proxy. Useful ones:
 
 | Metric | Watch for |
 |---|---|
@@ -48,7 +48,7 @@ The worker runs these every night and alerts Owners if anything is wrong:
 - **Outbox:** no events stuck undelivered.
 - **Sources:** every active data source has sent data within its expected window, e.g. a POS that sent nothing yesterday.
 
-Run them on demand with `npm run purros -- doctor`.
+Run them on demand with `purros doctor`.
 
 ## Common problems
 

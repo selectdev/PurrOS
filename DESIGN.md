@@ -1,77 +1,77 @@
 # PurrOS: Design
 
-This document covers how PurrOS is built: architecture, data model, API conventions, UI system and operations. For *what* we build and *why*, see [PRODUCT.md](PRODUCT.md).
+This document covers how PurrOS is built: architecture, data model, API conventions, UI system and operations. For *what* we build and *why*, see [PRODUCT.md](PRODUCT.md). For what is implemented so far, see [api/README.md](api/README.md).
 
 ---
 
 ## 1. Goals & constraints
 
-- **Single deployable app** plus one background worker. Self-hosters should run four containers (app, worker, Postgres, Redis) and nothing more.
-- **API parity.** The UI uses the same domain services as the public API. There is no hidden, UI-only business logic.
-- **Correctness for quantities, hours and money.** Ledgers are append-only, writes are transactional, and there is no floating-point money.
-- **Type-safe end to end**: Prisma types flow from the schema through the services to API validation.
-- **Boring technology.** Postgres, Redis, and a well-known web framework.
+- **Small, fast, easy to self-host.** The API is a single Go binary (`purros`) that also runs the background worker and admin commands. The minimum install is two containers: `api` and PostgreSQL.
+- **API-first, API-separate.** The REST API is its own service. The web app is a client of the same public API that integrations use, so there is no hidden, UI-only business logic.
+- **Correctness for quantities, hours and money.** Ledgers are append-only, writes are transactional, and there is no floating-point money (`numeric` in Postgres, `decimal.Decimal` in Go, decimal strings in JSON).
+- **High-volume ingestion.** POS terminals and online stores send data continuously; ingestion must be idempotent, batch-friendly and never block on reporting.
+- **Boring technology.** Go's standard library, PostgreSQL, and as few moving parts as possible. Redis is optional.
 
 ## 2. Tech stack
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Framework | **Next.js** (App Router) | Server Components for the UI, Route Handlers for `/api/v1` |
-| Language | **TypeScript** (strict) | `strict: true`, `noUncheckedIndexedAccess: true` |
-| Styling | **Tailwind CSS** | Design tokens via CSS variables (see §9) |
-| UI primitives | Radix UI / shadcn/ui-style components | Accessible, unstyled primitives, owned in-repo |
-| ORM | **Prisma** | PostgreSQL provider; migrations in `prisma/migrations` |
-| Database | **PostgreSQL 16** | Source of truth |
-| Cache / queues | **Redis 7** | BullMQ queues, rate limiting, short-lived cache |
-| Validation | Zod | Shared between API input, forms, and OpenAPI generation |
-| Auth | Auth.js (NextAuth) | Password, magic link, passkeys (WebAuthn), OIDC; SAML via a bridge (e.g. BoxyHQ SAML Jackson); separate API-key auth for `/api/v1` |
-| Testing | Vitest, Playwright | Unit/integration, and E2E |
-| Package manager | pnpm | |
+| API language | **Go** (1.26+) | Single static binary; low memory; fast startup; simple for contributors |
+| HTTP | Go `net/http` + a small in-house router (`api/internal/httpx`) | Supports action paths such as `/employees/{id}:terminate`; one route declaration drives auth, scopes, feature checks and OpenAPI |
+| Database | **PostgreSQL 16** via `pgx` | Hand-written SQL, no ORM; `numeric` mapped to `shopspring/decimal` |
+| Migrations | `goose`, SQL files embedded in the binary | Applied automatically on `purros serve` (advisory-locked) or with `purros migrate` |
+| Background jobs | **PostgreSQL** (`FOR UPDATE SKIP LOCKED`) | Outbox, webhook deliveries and scheduled jobs; no broker needed |
+| Rate limiting / cache | In-process by default; **Redis 7** optional | Redis only needed to share rate limits across several API instances |
+| Validation | `go-playground/validator` | Field errors reported by JSON path (`lines[0].quantity`) |
+| API docs | OpenAPI 3.1 generated from route declarations and Go types | Served at `/api/v1/openapi.json` |
+| People sign-in | Implemented in the API (planned): sessions, Argon2id, WebAuthn passkeys, OIDC and SAML libraries for Go | The web app never handles credentials itself |
+| Web app | **Next.js**, TypeScript, Tailwind CSS (`web/`, planned) | A client of the public API; talks to it with the TypeScript SDK |
+| SDK | `@purros/sdk` (TypeScript, generated from OpenAPI) | Used by the web app and integration authors |
+| Testing | Go `testing` against real PostgreSQL; Playwright for the web app | See §11 |
 
 ## 3. Architecture
 
 ```
-                ┌────────────────────────────────────────────┐
-  Browser ─────▶│                Next.js app                 │
-                │  ┌──────────────┐    ┌──────────────────┐  │
-                │  │ UI (RSC +    │    │ /api/v1 Route    │◀─┼──── REST calls ────┐
-                │  │ Server       │    │ Handlers         │  │                    │
-                │  │ Actions)     │    │ (API-key auth)   │  │           ┌────────┴─────────┐
-                │  └──────┬───────┘    └────────┬─────────┘  │           │ Integrations     │
-                │         └──────────┬──────────┘            │           │ (separate procs, │
-                │           ┌────────▼────────┐              │           │ custom-built:    │
-                │           │ Domain services │              │           │ HRIS, timeclock, │
-                │           │ (src/modules/*) │              │           │ inventory sync)  │
-                │           └───┬─────────┬───┘              │           └────────▲─────────┘
-                └───────────────┼─────────┼──────────────────┘                    │
-                                │         │ enqueue                               │
-                       Prisma   │         ▼                                       │
-                         ┌──────▼───┐  ┌───────┐   ┌──────────────────┐           │
-                         │ Postgres │  │ Redis │◀─▶│ Worker (BullMQ)  │── signed ─┘
-                         └──────────┘  └───────┘   │ webhooks, imports│   webhooks
-                                                   │ exports, cron    │
-                                                   └──────────────────┘
+                                   ┌──────────────────────────────────────┐
+  Browser ──► Web app (Next.js) ──►│                                      │◄── Integrations (POS, online
+  (web UI, Employee Area,  REST    │   purros serve  (Go, single binary)  │    stores, timeclocks, HR…)
+   kiosk, displays)                │                                      │    REST + API keys
+                                   │   router → auth → feature → scope    │
+                                   │   → rate limit → idempotency → module│
+                                   │                                      │
+                                   │   modules: platform, organization,   │
+                                   │   people, time, sales, inventory, …  │
+                                   │                                      │
+                                   │   worker (in-process or `purros      │──► signed webhooks
+                                   │   worker`): outbox → deliveries      │
+                                   └──────────────┬───────────────────────┘
+                                                  │ pgx
+                                          ┌───────▼────────┐    ┌───────────────────┐
+                                          │  PostgreSQL    │    │ Redis (optional)  │
+                                          │  data, outbox, │    │ shared rate limits│
+                                          │  job queue     │    └───────────────────┘
+                                          └────────────────┘
 ```
 
 PurrOS has no code that talks to third-party products. Each connection to another system is an **integration**: a separate program that calls `/api/v1` and receives webhooks (see §7).
 
 ### Key rules
 
-- **Domain services are the only code that writes to the database.** Route Handlers and Server Actions parse input, check auth, and call a service. They never call Prisma directly.
-- **Services are framework-agnostic.** They take a `Context` (actor, permissions, request ID, Prisma transaction client) and plain inputs. That makes them usable from the API, the UI, the worker and tests.
-- **Side effects go through the outbox** (see §6). A service never calls a webhook or an external system inline.
-- **The worker is the same codebase** with a different entrypoint (`src/worker/index.ts`), so it shares services and types.
+- **One route declaration per operation.** Each module exports `Routes()`: method, path, feature, scope, request/response types and handler. The router enforces authentication, the feature switch, the scope and rate limits before the handler runs, and the same declarations generate the OpenAPI document.
+- **Modules own their SQL.** A module reads and writes only its own tables, except through small exported helpers (e.g. `organization.LocationResolver`).
+- **Every change is audited and emits its event in the same transaction** (`c.Record(tx, Change{…})`). A handler never calls a webhook or external system inline.
+- **Batch endpoints return a result per record.** Each record runs in its own savepoint, so one bad record never fails the batch.
+- **The worker is the same binary.** `purros serve` runs it in-process by default (`PURROS_RUN_WORKER=true`); larger installs run extra `purros worker` containers.
 
 ### Feature switches
 
 Every module except the platform core can be turned off by the Owner, and a disabled module must leave no trace in the product. Enforcement lives in one place:
 
-- **Feature registry.** Each module exports a `defineFeature()` manifest: `key` (e.g. `cash`, `scheduling`, `time.kiosk`, `displays.gamification`), `parent`, `dependsOn`, and everything it contributes: nav entries, command-palette actions, dashboard widgets, KPIs, report types, Employee Area sections, display tiles, permissions, API route groups, webhook event types, integration scopes, background jobs and notification types. Sub-features use dotted keys under their parent.
-- **Storage.** A `FeatureSetting { key, enabled, changedBy, changedAt }` table. Resolved state is cached in Redis and invalidated on change, so the effect is immediate across app and worker instances.
+- **Feature registry.** The registry (`api/internal/features`) lists every feature: `key` (e.g. `cash`, `scheduling`, `time.kiosk`, `displays.gamification`), its parent (sub-features use dotted keys such as `time.kiosk`) and `dependsOn`. Every route, permission, scope and webhook event declares the feature it belongs to.
+- **Storage.** A `FeatureSetting { key, enabled, changedBy, changedAt }` table. Only the switch the Owner flips is stored; dependents are off because `IsEnabled` checks every requirement, and they return to their previous state when it is switched back on. Resolved state is cached in each process and invalidated through Postgres `LISTEN/NOTIFY`, so a change takes effect immediately in every API and worker instance.
 - **Guards at every entry point.**
-  - UI: navigation, search, palette, dashboards, settings and Employee Area are built from the registry filtered by enabled features. Server Components call `requireFeature()`, which triggers `notFound()`.
-  - API: route groups are wrapped in `withFeature(key)` and return `404` with `code: "feature_disabled"`. The OpenAPI document is generated from enabled features only.
-  - Services: `ctx.requireFeature(key)` at the top of each public service method, so disabled features can't be reached through Server Actions, jobs or other modules.
+  - Web UI: navigation, dashboards, settings and the Employee Area are built from `GET /api/v1/features`, so disabled features never render.
+  - API: every route declares its feature; the router answers `404` with `code: "feature_disabled"` before the handler runs. Handlers call `c.RequireFeature(key)` for sub-features. The OpenAPI document is generated from enabled features only.
   - Permissions: the catalog served to the role editor and `GET /api/v1/permissions` excludes disabled features. Existing grants stay stored but are ignored while the feature is off.
   - Events and jobs: the outbox dispatcher drops event types of disabled features, subscriptions to them are rejected, and the worker skips their scheduled jobs.
   - Integrations: registration rejects scopes of disabled features, and existing keys lose those scopes while the feature is off.
@@ -82,58 +82,29 @@ Every module except the platform core can be turned off by the Owner, and a disa
 ### Repository layout
 
 ```
-prisma/
-  schema.prisma
-  migrations/
-  seed.ts
-src/
-  app/
-    (auth)/               # sign-in, SSO callbacks
-    (employee)/           # Employee Area (self-service portal)
-    (kiosk)/              # shared-device timeclock (clock codes, no data access)
-    (display)/            # Team Displays (paired screens, read-only)
-    (dashboard)/          # authenticated UI, one folder per module
-      people/
-      time/
-      inventory/
-      purchasing/
-      sales/
-      settings/
-    api/v1/               # public REST API route handlers
-  modules/                # domain logic, one folder per bounded context
-    people/
-      people.service.ts
-      people.schemas.ts   # Zod input/output schemas
-      people.events.ts    # event type definitions
-      people.test.ts
-    time/
-    inventory/
-    purchasing/
-    sales/
-    organization/         # hierarchy, locations, inherited settings
-    scheduling/           # forecasting, schedule builder, labor rules
-    cash/
-    operations/           # forms, checklists, audits, corrective actions
-    equipment/
-    communication/        # announcements, messaging, calendar, files, displays
-    insights/             # reports, alerts, recommended actions
-    platform/             # users, roles, api keys, webhooks, audit
-  lib/
-    db.ts                 # Prisma client singleton
-    auth/
-    api/                  # API helpers: errors, pagination, idempotency
-    redis.ts
-    queue.ts
-  components/
-    ui/                   # design-system primitives
-  worker/
-    index.ts
-    jobs/
+api/                         Go API server, worker and CLI (the `purros` binary)
+  cmd/purros/                main package
+  internal/
+    config/                  environment configuration
+    db/                      pgx pool, transactions, embedded SQL migrations
+    httpx/                   router, auth, errors, validation, pagination, idempotency, rate limits, OpenAPI
+    features/                feature registry and switches
+    catalog/                 permissions, scopes, webhook event catalog
+    events/                  audit log and transactional outbox
+    webhooks/                outbox dispatcher and signed delivery worker
+    modules/                 one package per feature: platform, organization, people, timeclock, sales, inventory, …
+    cli/                     `purros` subcommands (serve, worker, migrate, setup, integrations, features, doctor)
+    server/                  wiring, health checks, API integration tests
+    testutil/                test database and API harness
+  Dockerfile
+web/                         Next.js web app (planned): dashboard, Employee Area, kiosk, team displays
 packages/
-  sdk/                    # @purros/sdk — typed API client, webhook verification (published to npm)
-  integration-template/   # starter repo for building an integration
+  sdk/                       @purros/sdk — typed API client, webhook verification (planned)
+  integration-template/      starter repo for building an integration (planned)
 examples/
-  integrations/           # small reference integrations (CSV timeclock bridge, webhook logger); not supported vendor integrations
+  integrations/              small reference integrations (planned)
+docs/                        documentation
+docker-compose.yml           api + PostgreSQL (+ optional Redis)
 ```
 
 ## 4. Data model
@@ -274,13 +245,12 @@ A Redis token bucket per API key, 600 requests/min by default and configurable. 
 
 ## 6. Events, outbox & background jobs
 
-1. A service writes its domain change **and** an `OutboxEvent` row in the same Prisma transaction.
-2. The worker polls the outbox (or is nudged via Redis pub/sub), then fans out to:
-   - webhook deliveries (`WebhookDelivery` rows plus a BullMQ job each)
-   - internal subscribers (e.g. low-stock alerts, timesheet rebuild)
-3. Outbox rows are marked dispatched once they are processed. This guarantees that no event is lost if Redis or the worker is down.
+1. A handler writes its domain change, an audit entry **and** an `outbox_events` row in the same transaction. Each event carries an **ordering key** (`entityType:entityID`).
+2. The worker's dispatcher claims undispatched events (`FOR UPDATE SKIP LOCKED`), drops events of disabled features, and creates one `webhook_deliveries` row per subscribed endpoint.
+3. Deliverers claim due deliveries with a short lease. Only the earliest pending delivery per *(endpoint, ordering key)* is eligible, so events about the same record arrive in order while different records are delivered in parallel.
+4. Failed deliveries back off (30 s → 12 h, about 15 attempts over ~3 days); an endpoint with 25 consecutive failures is disabled.
 
-BullMQ queues: `webhooks`, `email`, `imports`, `exports`, `backups`, `scheduled` (cron-style jobs: ledger verification, reorder checks, document expiry reminders, data retention).
+All queues live in PostgreSQL, so nothing is lost if a worker restarts and no message broker is needed. Future job types (email, imports, exports, backups, scheduled jobs such as ledger verification) use the same pattern.
 
 ## 7. Integrations
 
@@ -364,8 +334,8 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 - **AuthZ:** organization-defined roles on top of a fixed permission catalog (see §8.1). Checks are enforced in services, not only in routes.
 - **Audit log:** every mutating service call records actor (user, API key or integration), action, entity, before/after diff, IP, and request ID. The audit log is append-only.
 - **Data protection:** secrets and webhook signing keys are encrypted at rest with `PURROS_SECRET`-derived keys. Sensitive employee fields (national ID, bank details) are encrypted at the column level and masked in the UI and API unless the caller has explicit permission.
-- **Web security:** CSRF protection for Server Actions, strict CSP, rate-limited login, and Argon2id password hashing.
-- **Dependencies:** Renovate/Dependabot plus `pnpm audit` in CI.
+- **Web security:** strict CSP and security headers on every API response, CSRF protection for cookie-based web sessions, rate-limited sign-in, and Argon2id password hashing.
+- **Dependencies:** Dependabot/Renovate plus `govulncheck` in CI.
 
 ### 8.1 Roles & permissions model
 
@@ -374,7 +344,7 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 - **Assignment.** Each `User` has exactly one `roleId`, plus `assignedLocationIds[]` and `assignedDepartmentIds[]`, which give the `assigned_*` reaches their concrete values. `own_team` is resolved from the reporting lines on the linked `Employee` (direct and indirect reports).
 - **System roles.** `Owner` has every permission, is immutable and undeletable, and at least one Owner must exist. `Employee` has no permissions, is the configurable default role, and cannot be deleted while it is the default.
 - **Self-access is not a permission.** A user linked to an `Employee` record can always use the Employee Area (`/me` routes) for their own data, whatever their role.
-- **Evaluation.** `can(ctx, permission, target?)` looks up the role's grant for that permission and checks the target against its reach. List queries use `scopeWhere(ctx, permission)`, which returns a Prisma `where` fragment so filtering happens in SQL rather than after loading. Resolved grants are cached in Redis per user and invalidated when the role or the assignment changes, so edits apply on the next request.
+- **Evaluation.** `can(ctx, permission, target?)` looks up the role's grant for that permission and checks the target against its reach. List queries add a SQL condition for the permission's reach, so filtering happens in the database rather than after loading. Resolved grants are cached in Redis per user and invalidated when the role or the assignment changes, so edits apply on the next request.
 - **Escalation guard.** Creating or editing a role, or assigning one to a user, requires `roles.manage` / `users.manage` **and** that every permission involved is held by the actor with an equal or wider reach. Granting `roles.manage` itself is Owner-only.
 - **Integration scopes** (`people:read`, `time:write`, …) are coarse API-key scopes for integrations and are separate from people's roles. Each scope maps to a fixed set of catalog permissions with reach `everyone`.
 - **Audit.** Role creation, edits, deletion and user role/assignment changes are audited with before/after diffs.
@@ -429,21 +399,22 @@ Colours are defined as CSS variables and mapped in `tailwind.config.ts`, so ligh
 
 ## 10. Performance
 
-- Server Components render lists on the server, and client JS is limited to interactive parts.
-- Every list endpoint is paginated (max `limit=200`), with indexes on `(archivedAt, updatedAt)`, `externalId`, and all foreign keys.
-- Redis caches permission sets and reference data (units of measure, locations) with explicit invalidation on write.
-- Bulk ingestion uses `createMany` inside chunked transactions, and timesheet rebuilds are debounced per employee in the worker.
+- The API is a compiled Go binary with a pooled pgx connection; typical single-record reads are a single indexed query.
+- Every list endpoint is keyset-paginated by time-sortable ID (max `limit=200`), with indexes on `updated_at`, `external_id` and foreign keys.
+- Ingestion batches (up to 1,000 records) run in one transaction with a savepoint per record, and look-ups (locations, employees, items) are cached per batch.
+- Hot paths avoid writes: API-key `last_used_at` is updated at most once a minute; feature state is cached in-process and invalidated by `NOTIFY`.
+- Derived data (stock usage, KPIs) is computed by the worker, never inside ingestion requests.
 
 ## 11. Testing strategy
 
 | Layer | Tooling | What |
 |---|---|---|
-| Unit | Vitest | Pure logic: overtime rules, UoM conversion, costing |
-| Service / integration | Vitest + real Postgres (Docker) | Services with transactions, ledger invariants, permission checks |
-| API contract | Vitest + OpenAPI | Responses validate against the generated spec, and the diff check fails CI on breaking changes |
-| E2E | Playwright | Critical flows: onboard employee → punches → approve → export; PO → receive → stock; SO → ship → invoice |
+| Unit | Go `testing` | Pure logic: feature dependencies, signatures, encryption, limits, business dates |
+| API integration | Go `testing` + real PostgreSQL (`PURROS_TEST_DATABASE_URL`) | Each test gets a fresh database and a running API: auth, scopes, feature switches, ingestion, idempotency, webhooks |
+| API contract | Go `testing` + OpenAPI | The generated spec is checked; a breaking-change check is planned |
+| E2E | Playwright | Web app flows (when `web/` lands) |
 
-CI runs lint, typecheck, unit and integration tests, the OpenAPI breaking-change check, and a build on every PR.
+CI (`.github/workflows/api.yml`) runs `gofmt`, `go vet`, the race detector and all tests against PostgreSQL on every push and PR.
 
 ## 12. Operations
 
@@ -453,38 +424,40 @@ All configuration lives in environment variables (`PURROS_URL`, `PURROS_SECRET`,
 
 ### File storage
 
-A `StorageDriver` interface with `local` (Docker volume) and `s3` (any S3-compatible service) implementations. The database stores only file metadata (key, type, size, SHA-256, owner, visibility). Buckets stay private: uploads use signed PUT URLs direct from the browser (or proxy through the app), and downloads are permission-checked, then redirected to short-lived signed GET URLs. Retention jobs delete files PurrOS no longer needs. `purros storage migrate` moves files between drivers with checksum verification. S3 is required to run more than one `app` instance.
+A `StorageDriver` interface with `local` (Docker volume) and `s3` (any S3-compatible service) implementations. The database stores only file metadata (key, type, size, SHA-256, owner, visibility). Buckets stay private: uploads use signed PUT URLs direct from the browser (or proxy through the app), and downloads are permission-checked, then redirected to short-lived signed GET URLs. Retention jobs delete files PurrOS no longer needs. `purros storage migrate` moves files between drivers with checksum verification. S3 is required to run more than one `api` instance.
 
 ### Email
 
-Outgoing email uses SMTP only (any provider). Messages are rendered from templates in the recipient's language, queued in the `email` BullMQ queue, sent by the worker with pooling and rate limiting, and retried for 24 hours. A delivery log keeps recipient, subject, type and status, but not the body.
+Outgoing email uses SMTP only (any provider). Messages are rendered from templates in the recipient's language, queued in PostgreSQL, sent by the worker with pooling and rate limiting, and retried for 24 hours. A delivery log keeps recipient, subject, type and status, but not the body.
 
 ### Backups
 
-- Postgres is the only stateful service that must be backed up. Redis holds only queues and cache, which can be rebuilt from the outbox.
+- Postgres is the only stateful service that must be backed up. Redis, when used, holds only rate-limit counters.
 - Built-in scheduled backups: the worker runs `pg_dump`, optionally encrypts the dump, uploads it to a separate S3 bucket (`BACKUP_S3_*`) and prunes old ones. A documented `pg_dump` cron example covers setups that use their own tooling. Files are backed up through bucket versioning and replication, or the volume.
-- `purros doctor` CLI: checks connectivity, pending migrations, ledger integrity and queue health.
+- `purros doctor`: checks configuration, connectivity, pending migrations, company setup, the outbox and webhook endpoints.
 
 ### Migrations & upgrades
 
-- Prisma migrations run with `prisma migrate deploy`. They must be forward-only and safe to run while the app is live (expand → migrate data → contract across releases).
+- SQL migrations (goose) are embedded in the binary and applied on `purros serve` start under a Postgres advisory lock, or explicitly with `purros migrate`. They must be forward-only and safe to run while the API is live (expand → migrate data → contract across releases).
 - The release notes flag any migration that needs downtime.
 
 ### Observability
 
-- Structured JSON logs (pino) with `requestId` on every line.
-- `/api/health` (liveness) and `/api/ready` (DB and Redis reachable).
+- Structured JSON logs (`log/slog`) with `requestId` on every line; every response has an `X-Request-Id` header.
+- `/api/health` (liveness) and `/api/ready` (database reachable, migrations applied).
 - Optional OpenTelemetry traces and metrics export, plus a Prometheus endpoint for queue depth, webhook failure rate and request latency.
 
 ## 13. Decisions log
 
 | # | Decision | Rationale |
 |---|---|---|
-| 1 | Single Next.js app for UI + API | One deployable and shared types/services. Separating them later is possible because services are framework-agnostic |
-| 2 | PostgreSQL via Prisma | Strong transactional guarantees for ledgers, and a mature ecosystem |
-| 3 | Redis + BullMQ for jobs | Reliable retries and scheduling without adding another broker |
+| 1 | API in Go, separate from the Next.js web app | Performance for high-volume ingestion, a single small binary for self-hosters, simple contributor experience; the web app uses the same public API as integrations |
+| 2 | PostgreSQL with hand-written SQL (pgx), no ORM | Full control over transactions, locking and upserts for ledgers and ingestion |
+| 3 | PostgreSQL-backed job queue; Redis optional | One less service to run; jobs are enqueued in the same transaction as the change |
 | 4 | Transactional outbox for events | No lost or phantom webhooks |
 | 5 | Append-only stock ledger | Auditability, and stock can be reconstructed at any point in time |
 | 6 | Prefixed string IDs | Self-describing, sortable, safe to expose |
 | 7 | AGPL-3.0 | Keeps hosted forks open while allowing free self-hosting |
 | 8 | Integrations are custom, out-of-process programs using only the public API; none for specific vendors in core | Core stays small and stable, integrations can be written in any language, and a broken integration can't take down the ERP |
+| 9 | One route declaration drives routing, auth, scopes, feature checks and OpenAPI | The spec can't drift from the code, and a disabled feature can't leak through a forgotten check |
+| 10 | Per-record ordering keys for webhooks | Receivers see events about one record in order without serializing all deliveries |

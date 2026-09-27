@@ -2,7 +2,7 @@
 
 Server-level configuration lives in environment variables, usually in `.env`. Everything that belongs to the business (features, roles, locations, sign-in methods, labor rules and so on) is configured in the web UI under **Settings**, not here.
 
-Restart the `app` and `worker` containers after changing `.env`:
+Restart the `api` container (and any `worker` containers) after changing `.env`:
 
 ```bash
 docker compose up -d
@@ -15,7 +15,9 @@ docker compose up -d
 | `PURROS_URL` | Yes | | Public URL, e.g. `https://erp.example.com`. Used in links, emails, passkeys and SSO callbacks. |
 | `PURROS_SECRET` | Yes | | At least 32 random bytes (`openssl rand -base64 32`). Encrypts stored secrets and signs sessions. PurrOS refuses to start with a missing or example value. |
 | `DATABASE_URL` | Yes | | PostgreSQL connection string. |
-| `REDIS_URL` | Yes | | Redis connection string. |
+| `REDIS_URL` | No | | Optional Redis, used to share rate limits across several API containers. |
+| `PURROS_LISTEN` | No | `:8080` | Address the API listens on. |
+| `PURROS_RUN_WORKER` | No | `true` | Run the background worker inside `purros serve`. Set to `false` when you run separate `purros worker` containers. |
 | `PURROS_DEFAULT_TIMEZONE` | No | `UTC` | Timezone used before the first location is created. Each location has its own timezone. |
 | `PURROS_DEFAULT_LOCALE` | No | `en` | Default language and number and date formats. Users can choose their own. |
 | `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn` or `error`. |
@@ -75,7 +77,7 @@ Optional scheduled database backups to an S3 bucket: `BACKUP_S3_ENABLED`, `BACKU
 
 | Variable | Description |
 |---|---|
-| `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` | Keys for browser push notifications. Generate them with `npm run purros -- generate-vapid`. If unset, push is disabled. |
+| `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` | Keys for browser push notifications. Generate them with `purros generate-vapid`. If unset, push is disabled. |
 
 SMS and chat notifications are sent through an [integration](../integrations/recipes.md#notifications-sms-chat) that subscribes to notification webhooks. They aren't configured here.
 

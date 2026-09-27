@@ -63,7 +63,7 @@ To keep PurrOS email out of spam folders, set these DNS records for the domain i
 ### Test it
 
 - **Settings → System → Email → Send test email**, or
-- `docker compose exec app npm run purros -- email test --to you@example.com`
+- `docker compose exec api purros email test --to you@example.com`
 
 Both show the exact SMTP error if sending fails.
 
@@ -166,7 +166,7 @@ STORAGE_S3_ACCESS_KEY_ID=purros
 STORAGE_S3_SECRET_ACCESS_KEY=change-me-long-password
 ```
 
-Create the bucket once in the MinIO console (port 9001) or with `npm run purros -- storage init`.
+Create the bucket once in the MinIO console (port 9001) or with `purros storage init`.
 
 ### Bucket setup
 
@@ -205,7 +205,7 @@ For direct browser uploads, allow CORS on the bucket from your `PURROS_URL`:
 ### Test it
 
 - **Settings → System → Storage → Test**, or
-- `npm run purros -- storage test`
+- `purros storage test`
 
 This writes, reads and deletes a small test file and reports any permission, CORS or endpoint problem.
 
@@ -213,11 +213,11 @@ This writes, reads and deletes a small test file and reports any permission, COR
 
 ```bash
 # 1. Add the S3 settings to .env, but keep STORAGE_DRIVER=local for now
-docker compose exec app npm run purros -- storage migrate --to s3
+docker compose exec api purros storage migrate --to s3
 # 2. When it reports "0 remaining", switch the driver
 #    STORAGE_DRIVER=s3
 docker compose up -d
-docker compose exec app npm run purros -- storage verify
+docker compose exec api purros storage verify
 ```
 
 `storage migrate` copies every file, checks its checksum, and can be stopped and resumed safely. Files uploaded during the migration are copied in a final pass. The local volume isn't deleted, so remove it yourself once you've confirmed everything works.
@@ -236,6 +236,6 @@ PurrOS can also back up its database to an S3 bucket on a schedule, so a small i
 | `BACKUP_RETENTION_DAYS` | `30` | Older backups are deleted |
 | `BACKUP_ENCRYPTION_PASSPHRASE` | | If set, backups are encrypted before upload. **Store the passphrase separately.** |
 
-Each backup is a compressed `pg_dump`. **Settings → System → Backups** shows the last backups, their size and status, and alerts Owners if one fails. Run one on demand with `npm run purros -- backup run`. Restoring is covered in [Backups & upgrades](../operations/backups-and-upgrades.md#restoring).
+Each backup is a compressed `pg_dump`. **Settings → System → Backups** shows the last backups, their size and status, and alerts Owners if one fails. Run one on demand with `purros backup run`. Restoring is covered in [Backups & upgrades](../operations/backups-and-upgrades.md#restoring).
 
 The files in storage are backed up separately, through bucket versioning and replication or your own tools.

@@ -37,13 +37,13 @@ Copy backups off the server (another region, object storage, or a backup service
 ## Restoring
 
 ```bash
-docker compose stop app worker
+docker compose stop api
 docker compose exec -T db pg_restore -U purros -d purros --clean --if-exists < /backups/purros-2026-09-27.dump
 # or, for a built-in S3 backup:
-# docker compose exec app npm run purros -- backup restore --from s3 --date 2026-09-27
+# docker compose exec api purros backup restore --from s3 --date 2026-09-27
 # restore the attachments volume or bucket to the same point in time
-docker compose start app worker
-docker compose exec app npm run purros -- doctor
+docker compose start api
+docker compose exec api purros doctor
 ```
 
 `purros doctor` checks connectivity, migrations and stock ledger integrity after a restore.
@@ -65,10 +65,9 @@ Steps:
 # 2. Read the release notes for anything marked "Action required"
 git fetch --tags
 git checkout <new release tag>
-docker compose pull
-docker compose up -d
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npm run purros -- doctor
+docker compose build
+docker compose up -d            # migrations run automatically on start
+docker compose exec api purros doctor
 ```
 
 - Migrations are forward-only and designed to run while PurrOS is live. Any exception is flagged in the release notes.

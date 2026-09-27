@@ -1,6 +1,6 @@
 # PurrOS Documentation
 
-> **Status:** PurrOS is in early development. These docs describe the planned behavior of v1 and 1.x, and details may change before the first tagged release. See the [roadmap](../PRODUCT.md#9-roadmap) for what gets built when.
+> **Status:** PurrOS is in early development. These docs describe the planned behavior of v1 and 1.x, and details may change before the first tagged release. The Go API server is being built first. See [api/README.md](../api/README.md) for what works today, and the [roadmap](../PRODUCT.md#9-roadmap) for what comes next.
 
 PurrOS is an open-source, self-hosted operations platform (ERP) for businesses with 20–500 people. It covers people, scheduling, time, cash, inventory, ordering, sales, checklists, equipment, communication and reporting across one location or many. Every feature is optional, and other systems connect through a REST API.
 

@@ -7,7 +7,7 @@ PurrOS covers the day-to-day running of a business of 20–500 people, whether i
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)
 
-> **Project status:** PurrOS is in early development. The APIs, schema and install steps below describe the planned v1 and may change before the first tagged release.
+> **Project status:** PurrOS is in early development. The **Go API server** is being built first: the platform core, organization, people, punches, items and POS/online-store sales ingestion work today, with signed webhooks, feature switches and a CLI. The web app and the other modules described below are planned. See [api/README.md](api/README.md) for exactly what's implemented.
 
 ---
 
@@ -300,11 +300,10 @@ API keys are sent as `Authorization: Bearer <key>`. Only a hash is stored and th
 
 ## Tech stack
 
-- **[Next.js](https://nextjs.org/)** (App Router): web UI and REST API in one app
-- **TypeScript** end to end
-- **[Tailwind CSS](https://tailwindcss.com/)** for the UI
-- **[Prisma](https://www.prisma.io/)** ORM on **PostgreSQL**
-- **Redis** for background jobs (webhook delivery, imports, exports), caching and rate limiting
+- **API:** [Go](https://go.dev/): one small binary (`purros`) that serves the REST API, runs the background worker and provides the admin CLI
+- **Database:** **PostgreSQL 16**, which also holds the job queue, so no message broker is needed
+- **Web app:** **[Next.js](https://nextjs.org/)**, **TypeScript** and **[Tailwind CSS](https://tailwindcss.com/)**, as a separate client of the API (planned)
+- **Redis:** optional, only to share rate limits across several API containers
 - **SMTP** for email (any provider) and **S3-compatible object storage** for files (or a local volume)
 
 For the architecture, data model and API conventions, see [DESIGN.md](DESIGN.md).
@@ -364,30 +363,31 @@ Email and S3 are optional but recommended for production. See [Email & file stor
 ### 3. Start
 
 ```bash
-docker compose up -d
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npm run purros -- setup   # create the first admin user
+docker compose up -d                       # migrations run automatically on start
+docker compose exec api purros setup --company "Acme Coffee" --owner-email you@example.com --timezone America/Chicago
+docker compose exec api purros locations create --name "Store 101" --external-id 101 --timezone America/Chicago --cutoff 04:00
+docker compose exec api purros doctor
 ```
 
-Open `PURROS_URL` and sign in.
+Then register your first integration (see [Integrations](#integrations)) and open `PURROS_URL/api/v1/openapi.json` to explore the API.
 
 ### Services
 
 | Service | Purpose |
 |---|---|
-| `app` | Next.js web UI and `/api/v1` |
-| `worker` | Background jobs: webhook delivery, imports, scheduled exports |
-| `db` | PostgreSQL 16 |
-| `redis` | Redis 7 (queues, cache, rate limits) |
+| `api` | The `purros` Go binary: REST API at `/api/v1` and the background worker (webhooks) |
+| `db` | PostgreSQL 16: all data and the job queue |
+| `redis` | Optional (`--profile redis`): shared rate limits when you run several `api` containers |
+| `web` | Next.js web app (planned) |
 
-Put a reverse proxy (Caddy, Traefik, nginx) in front of `app` for TLS.
+Put a reverse proxy (Caddy, Traefik, nginx) in front of `api` for TLS.
 
 ### Upgrading
 
 ```bash
-git pull
-docker compose pull && docker compose up -d
-docker compose exec app npx prisma migrate deploy
+git fetch --tags && git checkout <new release tag>
+docker compose build && docker compose up -d   # migrations run automatically
+docker compose exec api purros doctor
 ```
 
 Back up PostgreSQL before every upgrade. See [DESIGN.md → Operations](DESIGN.md#12-operations).
@@ -470,7 +470,7 @@ PurrOS ships **no built-in integrations** for specific HR platforms, timeclocks,
 
 1. Start from the integration template (`packages/integration-template`) or any language with an OpenAPI client.
 2. Describe the integration in a manifest: which API scopes it needs and which webhook events it wants.
-3. Register it under **Settings → Integrations**. PurrOS issues a scoped API key and a webhook signing secret.
+3. Register it under **Settings → Integrations**, or today with the CLI: `docker compose exec api purros integrations register --manifest purros-integration.json`. PurrOS issues a scoped API key and a webhook signing secret.
 4. Run it wherever you like: next to PurrOS in Docker Compose, as a serverless function, or as a cron job.
 
 ```ts
@@ -491,25 +491,23 @@ Integrations can't reach the database or PurrOS internals, so a buggy integratio
 ## Local development
 
 ```bash
-# Requirements: Node.js 22 LTS, pnpm 9, Docker (for Postgres + Redis)
-pnpm install
-docker compose -f docker-compose.dev.yml up -d   # Postgres + Redis only
-cp .env.example .env
-pnpm prisma migrate dev
-pnpm db:seed          # demo company, employees, items
-pnpm dev              # app on http://localhost:3000
-pnpm worker:dev       # background worker
+# Requirements: Go 1.26+, Docker (or a local PostgreSQL 16)
+docker compose -f docker-compose.dev.yml up -d          # PostgreSQL on localhost:5432
+cd api
+export DATABASE_URL=postgres://purros:purros@localhost:5432/purros?sslmode=disable
+export PURROS_SECRET=$(openssl rand -base64 32)
+go run ./cmd/purros setup --company "Dev Co" --owner-email dev@example.com
+go run ./cmd/purros locations create --name "Store 101" --external-id 101
+go run ./cmd/purros serve                                 # http://localhost:8080
 ```
 
-Useful scripts:
-
-| Command | Description |
+| Command (in `api/`) | Description |
 |---|---|
-| `pnpm lint` | ESLint + Prettier check |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm test` | Unit tests (Vitest) |
-| `pnpm test:e2e` | End-to-end tests (Playwright) |
-| `pnpm prisma studio` | Browse the database |
+| `go test ./...` | Unit tests; add `PURROS_TEST_DATABASE_URL=postgres://purros:purros@localhost:5432/postgres?sslmode=disable` to run the API integration tests too |
+| `go vet ./...` and `gofmt -l .` | Static checks and formatting |
+| `go run ./cmd/purros help` | All CLI commands |
+
+See the [development guide](docs/development/README.md).
 
 ## Documentation
 
@@ -526,6 +524,7 @@ The full documentation is in [`docs/`](docs/README.md):
 
 - [PRODUCT.md](PRODUCT.md): vision, target users, scope, non-goals, roadmap
 - [DESIGN.md](DESIGN.md): architecture, data model, API design, UI system, operations
+- [api/README.md](api/README.md): the Go API server, what's implemented, and how to run it
 
 ## Contributing
 
@@ -533,7 +532,7 @@ Contributions are welcome. Before you start:
 
 1. Read [PRODUCT.md](PRODUCT.md) to check that the change fits the scope.
 2. For anything larger than a bug fix, open an issue to discuss it first.
-3. Keep PRs focused, include tests, and make sure `pnpm lint && pnpm typecheck && pnpm test` passes.
+3. Keep PRs focused, include tests, and make sure `gofmt -l .`, `go vet ./...` and `go test ./...` (with `PURROS_TEST_DATABASE_URL` set) pass in `api/`.
 4. API changes must update the OpenAPI spec and must not break `/api/v1` (see the versioning policy in DESIGN.md).
 
 ## Security

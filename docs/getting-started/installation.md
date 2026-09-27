@@ -1,6 +1,6 @@
 # Installation
 
-PurrOS runs as four containers: the **app** (web UI and API), a **worker** (background jobs), **PostgreSQL** and **Redis**. The supported way to run them is Docker Compose.
+PurrOS runs as two containers: **api** (the `purros` Go binary, which serves the REST API and runs the background worker) and **PostgreSQL**. Redis is optional, and the Next.js web app will be a third container once it's released. The supported way to run them is Docker Compose.
 
 ## Requirements
 
@@ -62,20 +62,21 @@ See [Email & file storage](email-and-storage.md) for setup and testing, and [Con
 ## 3. Start the services
 
 ```bash
-docker compose up -d
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npm run purros -- setup
+docker compose up -d                  # builds the API image; migrations run automatically on start
+docker compose exec api purros setup --company "Acme Coffee" --owner-email you@example.com --timezone America/Chicago
+docker compose exec api purros locations create --name "Store 101" --external-id 101 --timezone America/Chicago --cutoff 04:00
+docker compose exec api purros doctor
 ```
 
-The `setup` command creates the first **Owner** account and prints a one-time sign-in link.
+The `setup` command creates the company and the first **Owner** account. Until the web app ships, locations and integrations are managed with the [CLI](../operations/cli.md).
 
 ## 4. Put a reverse proxy in front
 
-The `app` container listens on port `3000` over plain HTTP. Put a reverse proxy in front of it to handle TLS. For example, with Caddy:
+The `api` container listens on port `8080` over plain HTTP (bound to `127.0.0.1` in the Compose file). Put a reverse proxy in front of it to handle TLS. For example, with Caddy:
 
 ```caddyfile
 erp.example.com {
-    reverse_proxy app:3000
+    reverse_proxy 127.0.0.1:8080
 }
 ```
 
@@ -90,7 +91,7 @@ server {
     client_max_body_size 50m;          # attachments and imports
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
@@ -100,26 +101,26 @@ server {
 
 `PURROS_URL` must match the public address exactly (scheme and host), or sign-in links, passkeys and SSO callbacks will fail.
 
-## 5. Sign in and run first-run setup
+## 5. Connect your systems
 
-Open the link printed by `setup`, set up your sign-in method, and follow the [first-run setup](first-run-setup.md) wizard.
+Register an integration for your POS, online store or timeclock with `purros integrations register` (see [Integrations](../integrations/README.md)), and browse the API at `PURROS_URL/api/v1/openapi.json`. When the web app is released, the Owner will sign in and continue with the [first-run setup](first-run-setup.md) wizard.
 
 ## Services
 
 | Service | Purpose | Persistent data |
 |---|---|---|
-| `app` | Next.js web UI, Employee Area, kiosk timeclock, team displays and `/api/v1` | None |
-| `worker` | Webhooks, data ingestion processing, imports and exports, forecasts, scheduled jobs | None |
-| `db` | PostgreSQL 16 | **Yes: back this up** |
-| `redis` | Redis 7: queues, cache, rate limits | No (can be rebuilt) |
+| `api` | The `purros` binary: `/api/v1`, health checks, and the background worker (webhook delivery and other jobs) | None |
+| `db` | PostgreSQL 16: all data and the job queue | **Yes: back this up** |
+| `redis` | Optional (`docker compose --profile redis up -d`): shared rate limits across several `api` containers | No |
+| `web` | Next.js web UI, Employee Area, kiosk timeclock, team displays (planned) | None |
 
-Files (documents, photos, receipts, payslips, exports) are stored in a Docker volume by default, or in S3-compatible storage, which is recommended for production and required when running more than one `app` container. See [Email & file storage](email-and-storage.md#file-storage-s3).
+Files (documents, photos, receipts, payslips, exports) are stored in a Docker volume by default, or in S3-compatible storage, which is recommended for production and required when running more than one `api` container. See [Email & file storage](email-and-storage.md#file-storage-s3).
 
 ## Scaling
 
-- **More users:** run several `app` containers behind the proxy. They are stateless when files are stored in S3.
-- **Heavy data feeds** (many POS terminals or online orders): run several `worker` containers. Jobs are distributed through Redis.
-- **Managed services:** you can use a managed PostgreSQL (16+) and Redis (7+) by pointing `DATABASE_URL` and `REDIS_URL` at them and removing `db` and `redis` from the Compose file.
+- **More traffic:** run several `api` containers behind the proxy. They are stateless; set `REDIS_URL` so they share rate limits.
+- **Heavy data feeds** (many POS terminals or online orders): set `PURROS_RUN_WORKER=false` on the `api` containers and run one or more dedicated `purros worker` containers. Workers share the PostgreSQL job queue safely.
+- **Managed services:** point `DATABASE_URL` (and optionally `REDIS_URL`) at a managed PostgreSQL 16+ and remove `db` from the Compose file.
 
 ## Next steps
 
