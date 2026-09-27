@@ -58,6 +58,25 @@ Industry words are configurable. A *location* can be called a store, branch, sit
 | **Employee Area** | Self-service portal where each employee sees and manages their own data |
 | **Platform** | Accounts and roles, API keys, webhooks, audit log, integrations |
 
+### Every feature is optional
+
+Use only what your business needs. The **Owner** can switch any feature area above, and many smaller features inside them, on or off under **Settings → Features**. A disabled feature is **gone completely**, not just hidden from one menu:
+
+- **Not in the interface.** It disappears from navigation, search, the command palette, dashboards, reports, the Employee Area, Team Displays, notifications and settings pages.
+- **Not in roles.** Its permissions disappear from the role editor, so nobody can be granted access to it.
+- **Not in the API.** Its endpoints respond `404` with the code `feature_disabled`, it's removed from the OpenAPI spec, its webhook events stop firing and can't be subscribed to, and integrations can't request its scopes.
+- **Not running.** Its background jobs, alerts and scheduled reports stop.
+
+**Only the platform core is always on**: sign-in and accounts, roles, locations, settings, the audit log, and the API and webhook infrastructure.
+
+**Smaller features can be switched off too**, for example the kiosk timeclock, photo on clock-in, shift swaps, estimated pay, payslips, gamification on Team Displays, direct messages, or the AI assistant.
+
+**Dependencies are handled for you.** Some features build on others. Scheduling needs People and Time & Attendance, and suggested orders need Inventory and Purchasing. Turning a feature on offers to turn on what it needs. Turning one off lists the features that depend on it and turns those off as well, after you confirm.
+
+**Your data is kept.** Turning a feature off doesn't delete anything. Turn it back on and everything is where you left it. If you want the data gone, the Owner can export it and then permanently delete it as a separate, confirmed action.
+
+**First-run setup** asks what kind of business you run and suggests a starting set of features, which you can change at any time. Every change is recorded in the audit log.
+
 ### Organization & Locations
 
 - **Flexible hierarchy.** Model the business as it is: company → regions → districts → locations, with as many levels as you need, named however you like. The hierarchy drives what people can see, how reports roll up and where settings apply.

@@ -62,6 +62,7 @@ Often a single in-house developer or an outside contractor. Deploys PurrOS and c
 5. **Mid-range means saying no.** A feature that would help 5% of users and complicate things for the other 95% belongs in an integration, not in core.
 6. **Calm, professional UI.** Dense where power users need it and plain where occasional users need it, with no clutter. Gamification and recognition belong only on the opt-in Team Displays, never in the working screens.
 7. **Industry-neutral core.** Features are described in general terms (locations, demand drivers, usage recipes, checklists), and industry-specific behavior comes from configuration and templates.
+8. **Everything is optional.** Every feature area, and many smaller features inside them, can be switched off by the Owner. A disabled feature disappears from the UI, roles, API, webhooks and background jobs, so a business only ever sees what it uses. Only the platform core (accounts, roles, locations, settings, audit log, API infrastructure) is always on.
 
 ## 5. Scope
 
@@ -126,6 +127,8 @@ The roadmap (§9) sets the order. Sections 5.1–5.7 and 5.9 are the v1 core, an
 - Works on phones as well as desktops. Employees see only their own data
 
 ### 5.7 Platform
+- Feature switches (Owner only): turn any feature area or smaller feature off to remove it everywhere (UI, roles, API, webhooks, jobs), with automatic dependency handling. Data is kept when disabled, and export plus permanent deletion is a separate action
+- First-run setup suggests features based on the type of business
 - Organization-defined roles (e.g. HR, District Manager, Supervisor): each account has one role, and each role has its own set of permissions, each limited to own team, assigned locations, assigned departments or everyone
 - API keys with scopes, and signed webhooks with retries
 - Full audit log (who changed what, when, and from UI or API)

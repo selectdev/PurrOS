@@ -62,6 +62,23 @@ PurrOS has no code that talks to third-party products. Each connection to anothe
 - **Side effects go through the outbox** (see §6). A service never calls a webhook or an external system inline.
 - **The worker is the same codebase** with a different entrypoint (`src/worker/index.ts`), so it shares services and types.
 
+### Feature switches
+
+Every module except the platform core can be turned off by the Owner, and a disabled module must leave no trace in the product. Enforcement lives in one place:
+
+- **Feature registry.** Each module exports a `defineFeature()` manifest: `key` (e.g. `cash`, `scheduling`, `time.kiosk`, `displays.gamification`), `parent`, `dependsOn`, and everything it contributes: nav entries, command-palette actions, dashboard widgets, KPIs, report types, Employee Area sections, display tiles, permissions, API route groups, webhook event types, integration scopes, background jobs and notification types. Sub-features use dotted keys under their parent.
+- **Storage.** A `FeatureSetting { key, enabled, changedBy, changedAt }` table. Resolved state is cached in Redis and invalidated on change, so the effect is immediate across app and worker instances.
+- **Guards at every entry point.**
+  - UI: navigation, search, palette, dashboards, settings and Employee Area are built from the registry filtered by enabled features. Server Components call `requireFeature()`, which triggers `notFound()`.
+  - API: route groups are wrapped in `withFeature(key)` and return `404` with `code: "feature_disabled"`. The OpenAPI document is generated from enabled features only.
+  - Services: `ctx.requireFeature(key)` at the top of each public service method, so disabled features can't be reached through Server Actions, jobs or other modules.
+  - Permissions: the catalog served to the role editor and `GET /api/v1/permissions` excludes disabled features. Existing grants stay stored but are ignored while the feature is off.
+  - Events and jobs: the outbox dispatcher drops event types of disabled features, subscriptions to them are rejected, and the worker skips their scheduled jobs.
+  - Integrations: registration rejects scopes of disabled features, and existing keys lose those scopes while the feature is off.
+- **Dependencies.** `dependsOn` forms a graph that is checked at enable and disable time. Enabling a feature returns the missing dependencies to enable together. Disabling returns the dependent features, which are disabled in the same transaction after confirmation. Cross-module reads, such as reports reading cash data, check `isEnabled()` and degrade gracefully (e.g. the KPI is omitted rather than shown as zero).
+- **Data retention.** Disabling never deletes rows. Purging a feature's data is a separate Owner-only action (`purros features purge <key>` or the UI) that requires export confirmation, runs as a background job, and is audited.
+- **Audit.** Every enable, disable and purge is written to the audit log.
+
 ### Repository layout
 
 ```
@@ -341,7 +358,7 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 
 ### 8.1 Roles & permissions model
 
-- **Permission catalog (code-defined).** Permissions are declared in code by each module as `<resource>.<action>` (`employees.read`, `employees.sensitive.read`, `pay.read`, `timesheets.approve`, `punches.correct`, `inventory.adjust`, `purchase_orders.approve`, `roles.manage`, `users.manage`, `integrations.manage`, `settings.manage`, `audit.read`, `api_keys.personal`, …). The catalog is versioned with the app. New permissions are never granted to existing roles automatically, except Owner. It is served at `GET /api/v1/permissions` with a description of each permission.
+- **Permission catalog (code-defined).** Permissions are declared in code by each module as `<resource>.<action>` (`employees.read`, `employees.sensitive.read`, `pay.read`, `timesheets.approve`, `punches.correct`, `inventory.adjust`, `purchase_orders.approve`, `roles.manage`, `users.manage`, `integrations.manage`, `settings.manage`, `audit.read`, `api_keys.personal`, …). The catalog is versioned with the app. New permissions are never granted to existing roles automatically, except Owner. It is served at `GET /api/v1/permissions` with a description of each permission. Permissions of disabled features are excluded (see §3, Feature switches).
 - **Roles (data-defined).** A `Role` is a name, a description and a set of `RolePermission { permission, reach }` rows, where `reach ∈ { own_team, assigned_locations, assigned_departments, everyone }`. Organizations create whatever roles they need (HR, District Manager, Supervisor…). New installs get editable starter roles from a seed, not from code.
 - **Assignment.** Each `User` has exactly one `roleId`, plus `assignedLocationIds[]` and `assignedDepartmentIds[]`, which give the `assigned_*` reaches their concrete values. `own_team` is resolved from the reporting lines on the linked `Employee` (direct and indirect reports).
 - **System roles.** `Owner` has every permission, is immutable and undeletable, and at least one Owner must exist. `Employee` has no permissions, is the configurable default role, and cannot be deleted while it is the default.
