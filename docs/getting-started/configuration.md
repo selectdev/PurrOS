@@ -69,9 +69,16 @@ Files (documents, photos, receipts, payslips, exports) are stored on local disk 
 
 See [Email & file storage](email-and-storage.md#file-storage-s3) for bucket setup, IAM policy, CORS, a MinIO example and migrating from local disk to S3.
 
-## Backups to S3
+## Backups
 
-Optional scheduled database backups to an S3 bucket: `BACKUP_S3_ENABLED`, `BACKUP_S3_*`, `BACKUP_SCHEDULE`, `BACKUP_RETENTION_DAYS`, `BACKUP_ENCRYPTION_PASSPHRASE`. See [Database backups to S3](email-and-storage.md#database-backups-to-s3-optional).
+| Variable | Default | Description |
+|---|---|---|
+| `PURROS_BACKUP_DIR` | *(off)*; `/backups` in `docker-compose.yml` | Turn on daily backups into this directory |
+| `PURROS_BACKUP_HOUR` | `2` | Hour of the day (UTC) after which the daily backup runs |
+| `PURROS_BACKUP_KEEP` | `14` | How many backups to keep |
+| `PURROS_BACKUP_PASSPHRASE` | | Encrypt backups with this passphrase |
+
+See [Backups & upgrades](../operations/backups-and-upgrades.md). Uploading backups to S3 directly is planned.
 
 ## Notifications
 

@@ -46,6 +46,9 @@ type Env struct {
 	Key        string // integration key with the scopes given to New
 	Hooks      *Receiver
 	HookSecret string
+
+	DatabaseURL string // the test database, for CLI tests
+	Secret      string // PURROS_SECRET of the app
 }
 
 // New creates a database, runs migrations, sets up a company with one
@@ -68,7 +71,8 @@ func New(t *testing.T, scopes []string, events []string) *Env {
 	}
 	u, _ := url.Parse(adminURL)
 	u.Path = "/" + dbName
-	pool, err := db.Connect(ctx, u.String())
+	dbURL := u.String()
+	pool, err := db.Connect(ctx, dbURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +102,7 @@ func New(t *testing.T, scopes []string, events []string) *Env {
 	srv := httptest.NewServer(server.Handler(app))
 	t.Cleanup(srv.Close)
 
-	env := &Env{T: t, Pool: pool, App: app, Server: srv, LocationID: locID, Hooks: &Receiver{}}
+	env := &Env{T: t, Pool: pool, App: app, Server: srv, LocationID: locID, Hooks: &Receiver{}, DatabaseURL: dbURL, Secret: testSecret}
 	hookSrv := httptest.NewServer(env.Hooks)
 	t.Cleanup(hookSrv.Close)
 
@@ -265,3 +269,31 @@ func (h *Receiver) Types() []string {
 	}
 	return out
 }
+
+// EmptyDatabase creates an empty database (no migrations) and returns its URL.
+func EmptyDatabase(t *testing.T) string {
+	t.Helper()
+	adminURL := os.Getenv("PURROS_TEST_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("set PURROS_TEST_DATABASE_URL to run integration tests")
+	}
+	ctx := context.Background()
+	dbName := strings.ToLower(strings.ReplaceAll(ids.New("t"), "_", ""))
+	admin, err := pgx.Connect(ctx, adminURL)
+	if err != nil {
+		t.Fatalf("connect admin db: %v", err)
+	}
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+dbName); err != nil {
+		t.Fatalf("create database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+dbName+" WITH (FORCE)")
+		admin.Close(context.Background())
+	})
+	u, _ := url.Parse(adminURL)
+	u.Path = "/" + dbName
+	return u.String()
+}
+
+// TestSecret is the PURROS_SECRET test apps use.
+const TestSecret = testSecret

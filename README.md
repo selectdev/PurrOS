@@ -354,8 +354,9 @@ STORAGE_S3_ENDPOINT=              # leave empty for AWS
 STORAGE_S3_ACCESS_KEY_ID=...
 STORAGE_S3_SECRET_ACCESS_KEY=...
 
-# Optional: nightly database backups to a separate S3 bucket
-BACKUP_S3_ENABLED=false
+# Nightly database backups (on by default in docker-compose.yml)
+PURROS_BACKUP_DIR=/backups
+PURROS_BACKUP_PASSPHRASE=         # optional: encrypt backups
 ```
 
 Email and S3 are optional but recommended for production. See [Email & file storage](docs/getting-started/email-and-storage.md) for setup, testing and moving existing files to S3.

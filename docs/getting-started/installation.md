@@ -31,7 +31,7 @@ Edit `.env`. These values are required:
 
 ```dotenv
 PURROS_URL=https://erp.example.com
-PURROS_SECRET=            # openssl rand -base64 32
+PURROS_SECRET=            # openssl rand -base64 32, or: purros secret generate
 DATABASE_URL=postgresql://purros:CHANGE_ME@db:5432/purros
 REDIS_URL=redis://redis:6379
 POSTGRES_PASSWORD=CHANGE_ME
@@ -63,12 +63,13 @@ See [Email & file storage](email-and-storage.md) for setup and testing, and [Con
 
 ```bash
 docker compose up -d                  # builds the API image; migrations run automatically on start
-docker compose exec api purros setup --company "Acme Coffee" --owner-email you@example.com --timezone America/Chicago
-docker compose exec api purros locations create --name "Store 101" --external-id 101 --timezone America/Chicago --cutoff 04:00
+docker compose exec api purros setup  # guided: company, first Owner and first location
 docker compose exec api purros doctor
 ```
 
-The `setup` command creates the company and the first **Owner** account. Until the web app ships, locations and integrations are managed with the [CLI](../operations/cli.md).
+`setup` asks for the company, the first **Owner** and, optionally, the first location. It then prints a one-time link for the Owner to set a password. For scripted installs, pass the values as flags (see the [CLI reference](../operations/cli.md#setup)). Until the web app ships, locations and integrations are managed with the [CLI](../operations/cli.md).
+
+The Compose file backs up the database every night into the `backups` volume. See [Backups & upgrades](../operations/backups-and-upgrades.md) to copy backups off the server, encrypt them and restore them.
 
 ## 4. Put a reverse proxy in front
 

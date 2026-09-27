@@ -132,3 +132,24 @@ func webhookMAC(secret, ts string, body []byte) string {
 	m.Write(body)
 	return hex.EncodeToString(m.Sum(nil))
 }
+
+// Fingerprint identifies a PURROS_SECRET without revealing it, so a backup can
+// tell whether it's being restored with the secret it was made with.
+func Fingerprint(masterSecret string) string {
+	m := hmac.New(sha256.New, []byte(masterSecret))
+	m.Write([]byte("purros secret fingerprint v1"))
+	return hex.EncodeToString(m.Sum(nil))[:16]
+}
+
+// SealedColumn is a bytea column holding values sealed with a Box.
+type SealedColumn struct {
+	Table, Key, Column string
+}
+
+// SealedColumns lists every column encrypted with PURROS_SECRET, for secret
+// rotation and checks. Key is the table's primary key column.
+var SealedColumns = []SealedColumn{
+	{"integrations", "id", "config_encrypted"},
+	{"webhook_endpoints", "id", "secret_encrypted"},
+	{"users", "id", "totp_secret"},
+}

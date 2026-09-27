@@ -34,7 +34,7 @@ PurrOS is in early development. This is what the API does **today**:
 | **Communication** | Announcements with acknowledgments, calendar events, recognitions, display metrics |
 | **Reports & Insights** | KPIs, seven built-in reports (JSON or CSV), rule-based recommendations, KPI alert rules evaluated by the worker |
 | **Webhooks** | Transactional outbox; HMAC-SHA256 signed deliveries; per-record ordering; retries over ~3 days; endpoints auto-disabled after repeated failures; events of disabled features dropped |
-| **CLI** | `serve`, `worker`, `migrate`, `doctor`, `setup` (prints the Owner's sign-in link), `locations create/list`, `users sign-in-link`, `email test`, `integrations register/list`, `api-keys revoke`, `features list/enable/disable`, `version` |
+| **CLI** | Guided `setup` and `init`; `status` and `doctor` (secret, SMTP, stock ledger and backup checks); `users`, `roles` and `recover owner` for account recovery; `secret check/rotate`; built-in `backup create/list/verify/inspect/restore/prune` with optional encryption and nightly scheduling; `migrate status`; locations, integrations, API keys and features; `--json`, `--yes` and `--env-file` everywhere |
 
 Every endpoint is listed in the [endpoint index](../docs/api/endpoints.md).
 
@@ -47,7 +47,7 @@ export DATABASE_URL="postgres://purros:purros@localhost:5432/purros?sslmode=disa
 export PURROS_SECRET="$(openssl rand -base64 32)"
 
 go run ./cmd/purros setup --company "Acme Coffee" --owner-email owner@example.com --timezone America/Chicago
-# prints a one-time link for the Owner to set a password
+# or run `setup` with no flags for a guided setup; prints the Owner's sign-in link
 go run ./cmd/purros locations create --name "Store 101" --external-id 101 --timezone America/Chicago --cutoff 04:00
 go run ./cmd/purros integrations register --manifest purros-integration.json   # prints the API key once
 go run ./cmd/purros serve

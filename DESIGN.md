@@ -433,7 +433,7 @@ Outgoing email uses SMTP only (any provider). Messages are rendered from templat
 ### Backups
 
 - Postgres is the only stateful service that must be backed up. Redis, when used, holds only rate-limit counters.
-- Built-in scheduled backups: the worker runs `pg_dump`, optionally encrypts the dump, uploads it to a separate S3 bucket (`BACKUP_S3_*`) and prunes old ones. A documented `pg_dump` cron example covers setups that use their own tooling. Files are backed up through bucket versioning and replication, or the volume.
+- Built-in backups without external tools (the image has no `pg_dump`): every table is copied with `COPY` in one REPEATABLE READ snapshot into a tar.gz with a manifest (versions, row counts, SHA-256 per table), optionally encrypted (Argon2id key, AES-256-GCM in authenticated chunks). The worker runs them daily into `PURROS_BACKUP_DIR` and prunes old ones. Restore verifies the whole file first, rebuilds the schema at the backup's version, loads the data with foreign keys re-validated, then migrates forward. Upgrades are manual; the CLI doesn't download releases. Files are backed up through bucket versioning and replication, or the volume.
 - `purros doctor`: checks configuration, connectivity, pending migrations, company setup, the outbox and webhook endpoints.
 
 ### Migrations & upgrades

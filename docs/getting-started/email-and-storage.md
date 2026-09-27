@@ -223,18 +223,8 @@ docker compose exec api purros storage verify
 
 ---
 
-## Database backups to S3 (optional)
+## Database backups to S3 (planned)
 
-PurrOS can also back up its database to an S3 bucket on a schedule, so a small install doesn't need a separate backup tool.
-
-| Variable | Default | Description |
-|---|---|---|
-| `BACKUP_S3_ENABLED` | `false` | Turn on scheduled backups |
-| `BACKUP_S3_BUCKET`, `BACKUP_S3_REGION`, `BACKUP_S3_ENDPOINT`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`, `BACKUP_S3_FORCE_PATH_STYLE` | | Same meaning as the storage settings. Use a **different bucket**, ideally with a different provider or region. |
-| `BACKUP_SCHEDULE` | `15 2 * * *` | Cron schedule, in the company time zone |
-| `BACKUP_RETENTION_DAYS` | `30` | Older backups are deleted |
-| `BACKUP_ENCRYPTION_PASSPHRASE` | | If set, backups are encrypted before upload. **Store the passphrase separately.** |
-
-Each backup is a compressed `pg_dump`. **Settings → System → Backups** shows the last backups, their size and status, and alerts Owners if one fails. Run one on demand with `purros backup run`. Restoring is covered in [Backups & upgrades](../operations/backups-and-upgrades.md#restoring).
+Today PurrOS writes its scheduled database backups to a directory (`PURROS_BACKUP_DIR`; see [Backups & upgrades](../operations/backups-and-upgrades.md)). Copy that directory to object storage with your usual tools. Uploading directly to an S3 bucket is planned.
 
 The files in storage are backed up separately, through bucket versioning and replication or your own tools.
