@@ -30,7 +30,74 @@ Most ERP systems fall into one of two groups: enterprise suites that take months
 | **Inventory** | Items and SKUs, units of measure, warehouses and bin locations, stock levels, transfers, adjustments, stock counts |
 | **Purchasing** | Suppliers, purchase orders, goods receipts |
 | **Sales** | Customers, sales orders, fulfilment, basic invoicing |
+| **Employee Area** | Self-service portal where each employee sees and manages their own data |
 | **Platform** | Users, roles and permissions, API keys, webhooks, audit log, integrations |
+
+## Employee Area
+
+Every employee gets their own sign-in to the **Employee Area**, a self-service portal that shows everything PurrOS holds about them. It works on phones as well as desktops, so staff without a work computer can check their hours from anywhere.
+
+### What employees can see
+
+| Section | What's shown |
+|---|---|
+| **My time** | Every clock-in/out punch with its source (which timeclock or device), shifts, daily and weekly totals, overtime, and timesheet status (pending, approved, locked) |
+| **My pay** | Current pay rate and rate history, an **estimated gross pay** per pay period (approved hours × rate, including overtime), and **payslips** when a payroll integration sends them in |
+| **Time off** | Leave balances, accrual history, and past and upcoming requests |
+| **My profile** | Personal and contact details, emergency contacts, position, department, manager, location, start date |
+| **My documents** | Contracts, certifications and other files shared with them, with expiry dates |
+| **Activity** | A log of changes made to their record: who changed what, and when |
+
+Estimated pay is clearly labelled as an estimate before taxes and deductions, because PurrOS does not run payroll itself. Payslips are the payroll provider's documents, pushed into PurrOS by an integration (`POST /api/v1/payslips`, `payroll:write` scope).
+
+### What employees can do
+
+- **Request punch corrections.** Flag a missed or wrong punch and give a reason. The manager approves or rejects it. The original punch is never overwritten, and the correction is kept in the audit log.
+- **Request time off.** Submit requests against their balances and follow the approval status.
+- **Update contact info.** Phone, address and emergency contacts can be changed directly. Sensitive fields such as legal name or bank details go to HR for approval.
+- **Export my data.** Download a complete copy of everything PurrOS stores about them (profile, punches, timesheets, pay, time off, documents, audit history) as JSON and CSV in a ZIP file.
+
+Employees only ever see their own data. They never see co-workers' records, and managers see only their own team.
+
+## Authentication
+
+PurrOS uses one account system for everyone who signs in: owners, admins, HR, managers, warehouse staff and employees. What each person can see and do depends on their **role**, not on a separate login. Software such as integrations and scripts authenticates with **API keys**.
+
+### Sign-in methods for people
+
+| Method | Details |
+|---|---|
+| **Email + password** | Accounts are created by invitation. Passwords are hashed with Argon2id and can optionally be checked against known-breached password lists. Resetting a password uses a single-use, time-limited email link. |
+| **Single sign-on (SSO)** | OpenID Connect (Google Workspace, Microsoft Entra ID, Okta, Keycloak, Authentik and others) and SAML 2.0. Admins can require SSO for everyone, and can create and deactivate accounts automatically from the identity provider's user list. |
+| **Passkeys** | Passwordless sign-in with Face ID, Touch ID, Windows Hello or a hardware security key (WebAuthn). |
+| **Magic link** | A one-time sign-in link sent by email, valid for 15 minutes. |
+
+Admins choose which methods are enabled under **Settings → Authentication**.
+
+### Two-factor authentication
+
+2FA is **optional** for every user and is off by default. Users can turn it on from their profile with an authenticator app (TOTP) or a passkey, and they get one-time recovery codes. An Owner can make 2FA mandatory for chosen roles or for the whole company.
+
+### Sessions
+
+- Sessions are stored server-side and linked by a secure, `httpOnly`, `SameSite=Lax` cookie.
+- Idle and absolute session timeouts can be configured. Sessions are signed out on password change.
+- Users can see their active sessions and devices and sign them out. Admins can sign out any user.
+- Sign-in attempts are rate-limited, and repeated failures lock the account for a short time.
+- Sign-ins, failures, 2FA changes and password resets are all recorded in the audit log.
+
+### Roles and permissions
+
+Access is role-based. The built-in roles are Owner, Admin, HR Admin, Payroll Admin, Manager, Warehouse, Purchasing, Sales, Employee and Read-only, and you can create custom roles. Roles can be limited to specific **locations or departments**, so a store manager only sees their store. Every new account starts with the **Employee** role, which gives access to the Employee Area only.
+
+### API authentication
+
+| Client | How it authenticates |
+|---|---|
+| **Integrations** | A scoped API key issued when the integration is registered (see [Integrations](#integrations)). Webhooks sent to the integration are signed with its own secret. |
+| **Scripts and personal tools** | Personal API keys that an admin can allow for chosen roles. A personal key can never have more access than the user who created it. |
+
+API keys are sent as `Authorization: Bearer <key>`. Only a hash is stored and the key is shown once. Keys can be given an expiry date, rotated or revoked at any time, and each key's last-used time and IP address are shown in the admin UI.
 
 ## Tech stack
 

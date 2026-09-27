@@ -24,7 +24,7 @@ This document covers how PurrOS is built: architecture, data model, API conventi
 | Database | **PostgreSQL 16** | Source of truth |
 | Cache / queues | **Redis 7** | BullMQ queues, rate limiting, short-lived cache |
 | Validation | Zod | Shared between API input, forms, and OpenAPI generation |
-| Auth | Auth.js (NextAuth) | Credentials + OIDC SSO; separate API-key auth for `/api/v1` |
+| Auth | Auth.js (NextAuth) | Password, magic link, passkeys (WebAuthn), OIDC; SAML via a bridge (e.g. BoxyHQ SAML Jackson); separate API-key auth for `/api/v1` |
 | Testing | Vitest, Playwright | Unit/integration, and E2E |
 | Package manager | pnpm | |
 
@@ -72,6 +72,7 @@ prisma/
 src/
   app/
     (auth)/               # sign-in, SSO callbacks
+    (employee)/           # Employee Area (self-service portal)
     (dashboard)/          # authenticated UI, one folder per module
       people/
       time/
@@ -125,7 +126,8 @@ examples/
 
 ```
 People         Employee, Department, Position, Location, EmployeeDocument, CustomFieldDef
-Time           Punch, Shift, Timesheet, TimesheetEntry, PayPeriod, OvertimeRule, TimeOffRequest, TimeOffBalance
+Time           Punch, PunchCorrectionRequest, Shift, Timesheet, TimesheetEntry, PayPeriod, OvertimeRule, TimeOffRequest, TimeOffBalance
+Pay            PayRate (effective-dated history), Payslip (pushed in by a payroll integration)
 Inventory      Item, ItemVariant, UnitOfMeasure, Warehouse, BinLocation, StockMovement, StockLevel, StockCount
 Purchasing     Supplier, PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine
 Sales          Customer, PriceList, SalesOrder, SalesOrderLine, Shipment, Invoice
@@ -311,9 +313,12 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 
 ## 8. Security
 
-- **AuthN:** Auth.js sessions (secure, httpOnly cookies) for the UI. API keys for `/api/v1`. Optional OIDC SSO and TOTP 2FA for local accounts.
+- **AuthN (people):** a single account system for all users, admins and employees alike. Sign-in methods: email + password (Argon2id), magic link (single use, 15 min), passkeys (WebAuthn), and SSO via OIDC or SAML 2.0 with optional SCIM provisioning. Admins enable methods per install and can require SSO.
+- **2FA:** optional for every user (TOTP or passkey, plus recovery codes). It is off by default, and an Owner can make it mandatory per role or company-wide.
+- **Sessions:** stored server-side (Postgres, cached in Redis) and linked by a secure `httpOnly`, `SameSite=Lax` cookie. Idle and absolute timeouts are configurable. Sessions are revoked on password change, and users can see and revoke their own sessions. Sign-in is rate-limited with temporary lockout.
+- **AuthN (software):** API keys for `/api/v1`, either integration keys (scoped at registration) or personal keys (allowed per role, never exceeding the owner's permissions). Keys can be given an expiry and can be rotated, and their last-used time and IP are shown.
 - **AuthZ:** RBAC with permissions like `people.read`, `time.approve`, `inventory.adjust`. Roles can be **scoped to locations/departments** (a manager sees only their team). Checks are enforced in services, not only in routes.
-- **Built-in roles:** Owner, Admin, HR Admin, Payroll Admin, Manager, Warehouse, Purchasing, Sales, Employee (self-service), Read-only.
+- **Built-in roles:** Owner, Admin, HR Admin, Payroll Admin, Manager, Warehouse, Purchasing, Sales, Employee (self-service; the default for new accounts, Employee Area only), Read-only. Custom roles are supported.
 - **Audit log:** every mutating service call records actor (user, API key or integration), action, entity, before/after diff, IP, and request ID. The audit log is append-only.
 - **Data protection:** secrets and webhook signing keys are encrypted at rest with `PURROS_SECRET`-derived keys. Sensitive employee fields (national ID, bank details) are encrypted at the column level and masked in the UI and API unless the caller has explicit permission.
 - **Web security:** CSRF protection for Server Actions, strict CSP, rate-limited login, and Argon2id password hashing.

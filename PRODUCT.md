@@ -38,6 +38,9 @@ Receives goods, moves stock, and runs cycle counts. Needs fast screens that work
 **Line Manager**
 Approves their team's timesheets and purchase requests. Uses PurrOS a few minutes a day and needs things to be obvious.
 
+**Employee**
+Hourly or salaried staff, often on a phone rather than a desk computer. Wants to check that their hours are right, see what they should be paid, and request time off without chasing a manager or HR.
+
 **Integrator / IT Generalist (key adopter)**
 Often a single in-house developer or an outside contractor. Deploys PurrOS and connects it to the existing HR system, timeclock hardware, and e-commerce or scanner apps. Whether the API is pleasant to use decides whether PurrOS gets adopted.
 
@@ -89,13 +92,21 @@ Often a single in-house developer or an outside contractor. Deploys PurrOS and c
 - Pick, pack and ship, which posts to the stock ledger
 - Basic invoicing (PDF) and payment status, exportable to accounting software
 
-### 5.6 Platform
+### 5.6 Employee Area (self-service)
+- Every employee signs in to see all data PurrOS holds about them: punches, timesheets, pay rate and history, estimated gross pay per period, payslips (when a payroll integration provides them), time-off balances, profile, documents and change history
+- Request punch corrections and time off, with approvals and audit
+- Update own contact details directly. Sensitive fields go to HR for approval
+- Export all personal data (JSON/CSV)
+- Works on phones as well as desktops. Employees see only their own data
+
+### 5.7 Platform
 - Multi-user with role-based access control and location scoping
 - API keys with scopes, and signed webhooks with retries
 - Full audit log (who changed what, when, and from UI or API)
 - CSV import and export for every core entity
 - Single company per install in v1, multi-currency display, and configurable timezone and locale
-- SSO via OIDC (Google Workspace, Microsoft Entra ID, Keycloak, Authentik, etc.)
+- One account system for everyone: email + password, magic link, passkeys, and SSO via OIDC or SAML (Google Workspace, Microsoft Entra ID, Okta, Keycloak, Authentik, etc.)
+- Optional 2FA (TOTP or passkey) that an Owner can make mandatory
 
 ## 6. Non-goals (v1)
 
