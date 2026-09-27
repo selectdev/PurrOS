@@ -34,10 +34,9 @@ Everyone chooses which notifications they get by email in their profile. Securit
 | `SMTP_REPLY_TO` | No | | Where replies go, e.g. an HR or support mailbox |
 | `SMTP_REQUIRE_TLS` | No | `true` | Refuse to send if the server doesn't support TLS |
 | `SMTP_TLS_REJECT_UNAUTHORIZED` | No | `true` | Set `false` only for internal servers with self-signed certificates |
-| `SMTP_POOL_MAX` | No | `5` | Parallel connections |
 | `SMTP_RATE_PER_SECOND` | No | `10` | Stay under your provider's sending limit |
 
-Emails are sent by the worker from a queue, so a slow or unavailable SMTP server never slows the app down. Failed sends are retried for up to 24 hours.
+Emails are sent by the worker from a queue, so a slow or unavailable SMTP server never slows the app down. Failed sends are retried with growing delays for up to 24 hours. Once sent, the email body is deleted; only the recipient, subject, kind and status are kept.
 
 ### Example `.env`
 

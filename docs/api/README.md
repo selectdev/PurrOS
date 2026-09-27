@@ -11,7 +11,13 @@ The spec only contains endpoints of [enabled features](../admin/feature-switches
 
 ## Authentication
 
-Send an API key as a bearer token:
+There are three ways to call the API:
+
+| Caller | How | Access |
+|---|---|---|
+| **Integration key** | `Authorization: Bearer pk_live_…` from registering an [integration](../integrations/README.md) | The **scopes** in its manifest, company-wide |
+| **Personal key** | `Authorization: Bearer pk_live_…` created at `POST /auth/api-keys` by a user whose role has `api_keys.personal` | That user's own role permissions and reach, never more |
+| **Session** | The `purros_session` cookie set by `POST /auth/sign-in` (the web app) | The signed-in person's role permissions and reach |
 
 ```http
 GET /api/v1/employees HTTP/1.1
@@ -19,12 +25,20 @@ Host: erp.example.com
 Authorization: Bearer pk_live_3c9f…
 ```
 
-| Key type | Created by | Access |
-|---|---|---|
-| Integration key | Registering an [integration](../integrations/README.md) | The **scopes** in its manifest, company-wide |
-| Personal key | A user whose role has `api_keys.personal` | That user's own role permissions and reach |
+Keys are shown once, can have an expiry, and can be revoked. Use `GET /api/v1/me` to check what a key is, or `GET /api/v1/auth/session` to see a person's role, permissions and assignments.
 
-Keys are shown once, can have an expiry, and can be rotated or revoked. Use `GET /api/v1/integrations/self` or `GET /api/v1/me` to check what a key is.
+### People: permissions and reach
+
+Requests from people (sessions and personal keys) are checked against their role instead of scopes. The [endpoint index](endpoints.md) lists the permission each endpoint needs. When the role holds the permission with a reach narrower than **Everyone** (own team, assigned locations or assigned departments):
+
+- list endpoints must be narrowed with `locationId` or `employeeId` inside that reach
+- single records, and actions on them, are checked against the record's location or employee
+- anything else returns `403 out_of_reach`
+
+Data feeds (batch ingestion, tenders, settlements, sensor readings…) are for integration keys only. Sessions also:
+
+- must send state-changing requests from the PurrOS origin (the `Origin` header is checked), which protects against cross-site request forgery
+- may need a second step (`POST /auth/sign-in/mfa`) before anything else works; see [Authentication](../admin/authentication.md)
 
 ## Scopes
 
@@ -114,9 +128,13 @@ Errors use RFC 9457 Problem Details with a stable `code`:
 | Status | `code` | Meaning |
 |---|---|---|
 | 400 | `bad_request` | Malformed JSON or parameters |
-| 401 | `unauthorized` | Missing, invalid, expired or revoked key |
-| 403 | `forbidden` | The key lacks the scope or permission |
-| 404 | `not_found` | No such record, or outside the key's reach |
+| 401 | `unauthorized` | Missing, invalid, expired or revoked key, or wrong sign-in details |
+| 401 | `session_expired` | The session ended; sign in again |
+| 401 | `mfa_required` | Finish signing in at `POST /auth/sign-in/mfa` |
+| 403 | `forbidden` | The key lacks the scope, or the person lacks the permission |
+| 403 | `out_of_reach` | The person's permission doesn't reach this location or employee |
+| 403 | `mfa_enrollment_required` | The company requires two-factor authentication; set it up first |
+| 404 | `not_found` | No such record |
 | 404 | `feature_disabled` | The feature is switched off |
 | 409 | `conflict` | Duplicate, or an idempotency key reused with a different body |
 | 409 | `version_mismatch` | `If-Match` didn't match the current version |

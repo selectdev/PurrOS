@@ -13,6 +13,8 @@ func (c *Ctx) Actor() events.Actor {
 		return events.System
 	case p.Kind == "integration":
 		return events.Actor{Type: "integration", ID: p.IntegrationID, Name: p.IntegrationDisplayName}
+	case p.User != nil:
+		return events.Actor{Type: "user", ID: p.UserID, Name: p.User.Name}
 	case p.UserID != "":
 		return events.Actor{Type: "user", ID: p.UserID}
 	default:

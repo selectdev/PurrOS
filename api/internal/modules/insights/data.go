@@ -64,7 +64,7 @@ WITH seg AS (
 	SELECT p.employee_id, p.location_id, p.type, p.at,
 	       lead(p.type) OVER w AS next_type, lead(p.at) OVER w AS next_at
 	FROM punches p
-	WHERE p.at >= $1::date - interval '2 days' AND p.at < $2::date + interval '2 days'
+	WHERE p.at >= $1::date - interval '2 days' AND p.at < $2::date + interval '2 days' AND p.voided_at IS NULL
 	WINDOW w AS (PARTITION BY p.employee_id ORDER BY p.at)
 ), work AS (
 	SELECT s.employee_id, l.id AS location_id,

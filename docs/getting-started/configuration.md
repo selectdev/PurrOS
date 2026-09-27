@@ -34,7 +34,7 @@ PurrOS sends email through any SMTP server: invitations, sign-in links, notifica
 | `SMTP_USER`, `SMTP_PASSWORD` | | Credentials |
 | `SMTP_FROM`, `SMTP_REPLY_TO` | | Sender and reply-to address |
 | `SMTP_REQUIRE_TLS`, `SMTP_TLS_REJECT_UNAUTHORIZED` | `true` | TLS requirements |
-| `SMTP_POOL_MAX`, `SMTP_RATE_PER_SECOND` | `5`, `10` | Connection pool and sending rate |
+| `SMTP_RATE_PER_SECOND` | `10` | Sending rate |
 
 See [Email & file storage](email-and-storage.md#email-smtp) for what's sent, deliverability (SPF, DKIM, DMARC), testing and the delivery log.
 

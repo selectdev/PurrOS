@@ -21,6 +21,7 @@ import (
 	"github.com/selectdev/purros/api/internal/db"
 	"github.com/selectdev/purros/api/internal/events"
 	"github.com/selectdev/purros/api/internal/features"
+	"github.com/selectdev/purros/api/internal/mail"
 	"github.com/selectdev/purros/api/internal/modules/insights"
 	"github.com/selectdev/purros/api/internal/modules/platform"
 	"github.com/selectdev/purros/api/internal/secure"
@@ -42,6 +43,10 @@ Setup
   setup                   Create the company and first Owner
   locations create        Add a location
   locations list          List locations
+  users sign-in-link      Print a one-time sign-in link for an account (--email, --reset-mfa)
+
+Email
+  email test              Send a test email (--to)
 
 Integrations
   integrations register   Register an integration from its manifest; prints its API key once
@@ -68,7 +73,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 
 	cmd, rest := args[0], args[1:]
-	if len(rest) > 0 && (cmd == "locations" || cmd == "integrations" || cmd == "features" || cmd == "api-keys") {
+	if len(rest) > 0 && (cmd == "locations" || cmd == "integrations" || cmd == "features" || cmd == "api-keys" || cmd == "users" || cmd == "email") {
 		cmd, rest = cmd+" "+rest[0], rest[1:]
 	}
 	var err error
@@ -89,6 +94,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		err = locationsCreate(ctx, rest, stdout)
 	case "locations list":
 		err = locationsList(ctx, stdout)
+	case "users sign-in-link":
+		err = usersSignInLink(ctx, rest, stdout)
+	case "email test":
+		err = emailTest(ctx, rest, stdout)
 	case "integrations register":
 		err = integrationsRegister(ctx, rest, stdout)
 	case "integrations list":
@@ -156,7 +165,7 @@ func serve(ctx context.Context, args []string, stdout io.Writer) error {
 	go app.Features.Listen(ctx)
 	if cfg.RunWorker {
 		w := webhooks.New(pool, app.Features, app.Box, log)
-		w.Jobs = []webhooks.Job{insights.AlertJob(pool, app.Features)}
+		w.Jobs = jobs(cfg, pool, app.Features, log)
 		go func() {
 			if err := w.Run(ctx); err != nil {
 				log.Error("worker", "err", err)
@@ -178,8 +187,9 @@ func worker(ctx context.Context) error {
 	}
 	store := features.NewStore(pool)
 	go store.Listen(ctx)
-	w := webhooks.New(pool, store, box, logger())
-	w.Jobs = []webhooks.Job{insights.AlertJob(pool, store)}
+	log := logger()
+	w := webhooks.New(pool, store, box, log)
+	w.Jobs = jobs(cfg, pool, store, log)
 	return w.Run(ctx)
 }
 
@@ -271,8 +281,73 @@ func setup(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	cfg, _ := config.Load(false)
+	link, err := SignInLink(ctx, pool, cfg.URL, in.OwnerEmail, false)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(stdout, "Company %q created. Owner account: %s (%s)\n", in.Company, in.OwnerEmail, id)
+	fmt.Fprintf(stdout, "Set the Owner's password with this link (valid 7 days, works once):\n  %s\n", link)
 	fmt.Fprintln(stdout, "Next: add a location with `purros locations create`, then register integrations.")
+	return nil
+}
+
+// jobs are the worker's periodic jobs.
+func jobs(cfg config.Config, pool *pgxpool.Pool, fs *features.Store, log *slog.Logger) []webhooks.Job {
+	out := []webhooks.Job{insights.AlertJob(pool, fs)}
+	if cfg.SMTP.Enabled() {
+		out = append(out, mail.NewSender(pool, cfg.SMTP, log).Job())
+	} else {
+		log.Info("email is off: SMTP_HOST is not set")
+	}
+	return out
+}
+
+func usersSignInLink(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("users sign-in-link", flag.ContinueOnError)
+	email := fs.String("email", "", "the account's email")
+	resetMFA := fs.Bool("reset-mfa", false, "also remove their authenticator app and recovery codes")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *email == "" {
+		return errors.New("--email is required")
+	}
+	cfg, pool, err := connect(ctx, false)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	link, err := SignInLink(ctx, pool, cfg.URL, *email, *resetMFA)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "One-time link for %s (share it privately):\n  %s\n", *email, link)
+	return nil
+}
+
+func emailTest(ctx context.Context, args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("email test", flag.ContinueOnError)
+	to := fs.String("to", "", "recipient")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *to == "" {
+		return errors.New("--to is required")
+	}
+	cfg, err := config.Load(false)
+	if err != nil && cfg.DatabaseURL != "" {
+		return err
+	}
+	if !cfg.SMTP.Enabled() {
+		return errors.New("SMTP_HOST is not set")
+	}
+	s := mail.NewSender(nil, cfg.SMTP, logger())
+	if err := s.Send(ctx, mail.Message{To: *to, Subject: "PurrOS test email", Kind: "test",
+		Body: "This is a test email from PurrOS. Email is working."}); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Sent a test email to %s through %s:%d.\n", *to, cfg.SMTP.Host, cfg.SMTP.Port)
 	return nil
 }
 

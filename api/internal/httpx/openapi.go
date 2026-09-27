@@ -42,14 +42,32 @@ func (a *App) OpenAPI(ctx context.Context, version string) (map[string]any, erro
 		if r.Scope != "" {
 			desc = append(desc, "Scope: `"+r.Scope+"`.")
 		}
+		switch r.Permission {
+		case "":
+		case PermSelf:
+			desc = append(desc, "People: any signed-in person, for their own data.")
+		case PermAnyone:
+			desc = append(desc, "People: anyone signed in.")
+		case PermNobody:
+			desc = append(desc, "Integration keys only.")
+		case PermOwner:
+			desc = append(desc, "People: Owners only.")
+		default:
+			desc = append(desc, "Permission: `"+r.Permission+"`.")
+		}
 		if r.Feature != "" && r.Feature != "core" {
 			desc = append(desc, "Feature: `"+r.Feature+"`.")
 		}
 		if len(desc) > 0 {
 			op["description"] = strings.TrimSpace(r.Description + "\n\n" + strings.Join(desc, " "))
 		}
-		if r.Auth == AuthNone {
+		switch r.Auth {
+		case AuthNone:
 			op["security"] = []any{}
+		case AuthSession:
+			op["security"] = []any{map[string]any{"session": []string{}}}
+		case AuthIntegration:
+			op["security"] = []any{map[string]any{"apiKey": []string{}}}
 		}
 
 		var params []any
@@ -103,12 +121,15 @@ func (a *App) OpenAPI(ctx context.Context, version string) (map[string]any, erro
 			"license": map[string]any{"name": "AGPL-3.0-only"},
 		},
 		"servers":  []any{map[string]any{"url": a.Config.URL}},
-		"security": []any{map[string]any{"apiKey": []string{}}},
+		"security": []any{map[string]any{"apiKey": []string{}}, map[string]any{"session": []string{}}},
 		"paths":    paths,
 		"components": map[string]any{
 			"schemas": g.components,
 			"securitySchemes": map[string]any{
-				"apiKey": map[string]any{"type": "http", "scheme": "bearer", "bearerFormat": "pk_live_…"},
+				"apiKey": map[string]any{"type": "http", "scheme": "bearer", "bearerFormat": "pk_live_…",
+					"description": "Integration keys (scopes) or personal keys (the user's role and reach)."},
+				"session": map[string]any{"type": "apiKey", "in": "cookie", "name": SessionCookie,
+					"description": "Browser session from POST /auth/sign-in. State-changing requests must come from the PurrOS origin."},
 			},
 		},
 	}, nil

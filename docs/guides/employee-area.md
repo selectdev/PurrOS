@@ -47,3 +47,25 @@ Estimated pay is **before taxes and deductions** and is only a guide. Your paysl
 - Choose which profile fields employees may edit directly and which need approval under **Settings → People**.
 - Payslips arrive from a payroll integration through `POST /api/v1/payslips` (`payroll:write`). See [recipes](../integrations/recipes.md#payroll).
 - The Employee Area needs no role permission. Any account linked to an employee record can use it for its own data.
+
+## API
+
+The Employee Area is served under `/api/v1/me`, for sessions and personal keys of accounts linked to an employee record. Every endpoint only ever touches the caller's own data. The full list is in the [endpoint index](../api/endpoints.md#employee-area).
+
+| Endpoint | Feature |
+|---|---|
+| `GET/PATCH /me/profile` | `employee_area`, editing needs `employee_area.profile_edit` |
+| `GET /me/punches`, `GET /me/timesheets` | `time` |
+| `GET/POST /me/punch-corrections`, `POST /me/punch-corrections/{id}:cancel` | `time` |
+| `GET /me/shifts`, `GET /me/open-shifts`, `POST /me/shifts/{id}:claim` | `scheduling`, `scheduling.open_shifts` |
+| `GET/POST /me/shift-swaps` | `scheduling.shift_swaps` |
+| `GET/POST /me/availability`, `DELETE /me/availability/{id}` | `scheduling` |
+| `GET /me/time-off/balances`, `GET/POST /me/time-off/requests`, `POST /me/time-off/requests/{id}:cancel` | `time.time_off` |
+| `GET /me/pay` | `employee_area.estimated_pay` |
+| `GET /me/payslips` | `employee_area.payslips` |
+| `GET /me/documents` | `people.documents` (only documents shared with the employee) |
+| `GET /me/announcements`, `POST /me/announcements/{id}:acknowledge` | `communication.announcements` |
+| `GET /me/activity` | `employee_area` |
+| `GET /me/export` | `employee_area.data_export` (a ZIP of JSON and CSV files) |
+
+Managers decide punch corrections at `POST /api/v1/punch-corrections/{id}:approve` or `:reject` (`punches.correct`, within their reach). Approving adds the corrected punch and keeps the original, marked void.

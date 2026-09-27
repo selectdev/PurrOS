@@ -16,6 +16,10 @@ PurrOS is in early development. This is what the API does **today**:
 | Area | Implemented |
 |---|---|
 | **Platform** | API-key auth with scopes; feature switches (`404 feature_disabled`, instant across processes); RFC 9457 errors with field paths; cursor pagination; `Idempotency-Key`; per-key rate limits (in memory, or Redis); request IDs; audit log; security headers; `/api/health`, `/api/ready`; OpenAPI 3.1 at `/api/v1/openapi.json`, generated from the code and filtered by enabled features |
+| **Sign-in & accounts** | Email + password (Argon2id), magic links, authenticator-app 2FA with recovery codes, server-side sessions (idle and absolute timeouts, shared-device mode, origin checks), invitations, password reset, lockout after repeated failures, personal API keys; inviting and managing users and roles with no-escalation rules; company-wide or per-role mandatory 2FA |
+| **Roles & reach** | Every endpoint maps to a permission. Sessions and personal keys act with the person's role; a reach narrower than Everyone limits them to their assigned locations, departments or team. Integration keys keep using scopes |
+| **Employee Area** | `/me`: profile and contact details, punches and corrections, timesheets, shifts, open shifts, swaps, availability, time off, pay history and estimates, payslips, shared documents, announcements, activity history, and a ZIP export of everything |
+| **Email** | SMTP with STARTTLS or implicit TLS, sent by the worker from a queue with retries; invitation, sign-in link and password reset emails |
 | **Platform endpoints** | `/me`, `/features`, `/permissions`, integration self-service (`/integrations/self`, config, health, logs) |
 | **Organization** | Org units, locations (time zone and business-day cut-off), departments, roles with permissions, users with assignments (read-only) |
 | **People & HR** | Employees (upsert by external ID, `If-Match`, `:transfer`, `:terminate`, `:rehire`), documents, skills, pay rates, payslips |
@@ -30,11 +34,11 @@ PurrOS is in early development. This is what the API does **today**:
 | **Communication** | Announcements with acknowledgments, calendar events, recognitions, display metrics |
 | **Reports & Insights** | KPIs, seven built-in reports (JSON or CSV), rule-based recommendations, KPI alert rules evaluated by the worker |
 | **Webhooks** | Transactional outbox; HMAC-SHA256 signed deliveries; per-record ordering; retries over ~3 days; endpoints auto-disabled after repeated failures; events of disabled features dropped |
-| **CLI** | `serve`, `worker`, `migrate`, `doctor`, `setup`, `locations create/list`, `integrations register/list`, `api-keys revoke`, `features list/enable/disable`, `version` |
+| **CLI** | `serve`, `worker`, `migrate`, `doctor`, `setup` (prints the Owner's sign-in link), `locations create/list`, `users sign-in-link`, `email test`, `integrations register/list`, `api-keys revoke`, `features list/enable/disable`, `version` |
 
 Every endpoint is listed in the [endpoint index](../docs/api/endpoints.md).
 
-Still planned: sign-in for people (passwords, SSO, passkeys) and personal API keys with role enforcement, the web app and Employee Area, messaging, email (SMTP), S3 file storage, scheduled and custom reports, the AI assistant, and backups.
+Still planned: passkeys, single sign-on (OIDC and SAML) and SCIM, the web app, messaging, S3 file storage, scheduled and custom reports, the AI assistant, and backups.
 
 ## Quick start
 
@@ -43,6 +47,7 @@ export DATABASE_URL="postgres://purros:purros@localhost:5432/purros?sslmode=disa
 export PURROS_SECRET="$(openssl rand -base64 32)"
 
 go run ./cmd/purros setup --company "Acme Coffee" --owner-email owner@example.com --timezone America/Chicago
+# prints a one-time link for the Owner to set a password
 go run ./cmd/purros locations create --name "Store 101" --external-id 101 --timezone America/Chicago --cutoff 04:00
 go run ./cmd/purros integrations register --manifest purros-integration.json   # prints the API key once
 go run ./cmd/purros serve

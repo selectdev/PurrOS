@@ -6,8 +6,8 @@ PurrOS holds sensitive data: employee details, pay, cash, and business performan
 
 | Area | Protection |
 |---|---|
-| Sign-in | Argon2id password hashing, passkeys, SSO, optional 2FA, rate limiting and lockout. See [Authentication](../admin/authentication.md). |
-| Sessions | Server-side sessions, secure `httpOnly` cookies, configurable timeouts, remote sign-out |
+| Sign-in | Argon2id password hashing, optional or mandatory 2FA, rate limiting and lockout (passkeys and SSO planned). See [Authentication](../admin/authentication.md). |
+| Sessions | Server-side sessions, secure `httpOnly` cookies, idle and absolute timeouts, remote sign-out, origin checks against cross-site requests |
 | Access control | Organization-defined roles, permissions with reach, escalation protection, checked in the service layer (not just the UI) |
 | Features | Switched-off features are unreachable through the UI, API, webhooks and jobs |
 | Sensitive fields | National IDs, bank details and similar fields are encrypted at the column level and masked unless the viewer has explicit permission |

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/selectdev/purros/api/internal/auth"
 	"github.com/selectdev/purros/api/internal/events"
 	"github.com/selectdev/purros/api/internal/ids"
 )
@@ -38,7 +40,7 @@ func Setup(ctx context.Context, pool *pgxpool.Pool, in SetupInput) (ownerID stri
 			return err
 		}
 		if exists {
-			return errors.New("setup has already been run (use `purros owner:reset` to recover access)")
+			return errors.New("setup has already been run (use `purros users sign-in-link --email …` to recover access)")
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO company (id, name, currency, timezone) VALUES ($1, $2, $3, $4)`,
 			ids.New(ids.Company), in.Company, in.Currency, in.Timezone); err != nil {
@@ -53,7 +55,7 @@ func Setup(ctx context.Context, pool *pgxpool.Pool, in SetupInput) (ownerID stri
 			return err
 		}
 		ownerID = ids.New(ids.User)
-		if _, err := tx.Exec(ctx, `INSERT INTO users (id, email, name, role_id, status) VALUES ($1, $2, $3, $4, 'active')`,
+		if _, err := tx.Exec(ctx, `INSERT INTO users (id, email, name, role_id, status) VALUES ($1, $2, $3, $4, 'invited')`,
 			ownerID, in.OwnerEmail, in.OwnerName, ownerRole); err != nil {
 			return err
 		}
@@ -101,4 +103,48 @@ func CreateLocation(ctx context.Context, pool *pgxpool.Pool, in LocationInput) (
 		})
 	})
 	return id, err
+}
+
+// SignInLink issues a single-use link for a user: an invitation for accounts
+// that haven't signed in yet, otherwise a password reset. With resetMFA it
+// also removes their authenticator app and recovery codes.
+func SignInLink(ctx context.Context, pool *pgxpool.Pool, baseURL, email string, resetMFA bool) (string, error) {
+	var userID, status string
+	err := pool.QueryRow(ctx, `SELECT id, status FROM users WHERE lower(email) = lower($1)`, strings.TrimSpace(email)).Scan(&userID, &status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("no account with email %q", email)
+	}
+	if err != nil {
+		return "", err
+	}
+	if status == "deactivated" {
+		return "", errors.New("this account is deactivated")
+	}
+	purpose, path, ttl := "password_reset", "/reset-password", time.Hour
+	if status == "invited" {
+		purpose, path, ttl = "invitation", "/invitation", 7*24*time.Hour
+	}
+	token, hash := auth.NewToken()
+	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM auth_tokens WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`, userID, purpose); err != nil {
+			return err
+		}
+		if resetMFA {
+			if _, err := tx.Exec(ctx, `UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL,
+				failed_sign_ins = 0, locked_until = NULL WHERE id = $1`, userID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM recovery_codes WHERE user_id = $1`, userID); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO auth_tokens (id, token_hash, user_id, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)`,
+			ids.New(ids.AuthToken), hash, userID, purpose, time.Now().Add(ttl))
+		if err != nil {
+			return err
+		}
+		return events.Audit(ctx, tx, events.AuditEntry{Actor: events.Actor{Type: "system", Name: "cli"}, Action: "user.sign_in_link_issued",
+			EntityType: "user", EntityID: userID, After: map[string]any{"resetMfa": resetMFA}})
+	})
+	return strings.TrimRight(baseURL, "/") + path + "?token=" + token, err
 }

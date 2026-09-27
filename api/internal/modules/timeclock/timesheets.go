@@ -322,7 +322,7 @@ func buildTimesheets(c *httpx.Ctx, tx pgx.Tx, period PayPeriod) (BuildResult, er
 	tz := companyTZ(c, tx)
 	start := time.Date(period.StartDate.Year(), period.StartDate.Month(), period.StartDate.Day(), 0, 0, 0, 0, tz)
 	end := time.Date(period.EndDate.Year(), period.EndDate.Month(), period.EndDate.Day(), 0, 0, 0, 0, tz).AddDate(0, 0, 1)
-	rows, err := tx.Query(c, `SELECT employee_id, id, type, at FROM punches WHERE at >= $1 AND at < $2 ORDER BY employee_id, at, id`, start, end)
+	rows, err := tx.Query(c, `SELECT employee_id, id, type, at FROM punches WHERE at >= $1 AND at < $2 AND voided_at IS NULL ORDER BY employee_id, at, id`, start, end)
 	if err != nil {
 		return res, err
 	}

@@ -40,11 +40,27 @@ purros doctor
 
 ### `setup`
 
-Creates the company, the system roles (Owner and Employee) and the first Owner. Only works once.
+Creates the company, the system roles (Owner and Employee) and the first Owner, and prints a one-time link (valid 7 days) for the Owner to set their password. Only works once.
 
 ```bash
 purros setup --company "Acme Coffee" --owner-email owner@example.com \
   [--owner-name "Alex Kim"] [--currency USD] [--timezone America/Chicago]
+```
+
+### `users sign-in-link`
+
+Prints a one-time link for an account: an invitation for someone who never signed in, otherwise a password reset (valid 1 hour). Use it when email isn't set up, or to recover access when every Owner is locked out. `--reset-mfa` also removes their authenticator app and recovery codes. The action is recorded in the audit log.
+
+```bash
+purros users sign-in-link --email owner@example.com [--reset-mfa]
+```
+
+### `email test`
+
+Sends a test email through the configured SMTP server and prints the error if it fails.
+
+```bash
+purros email test --to you@example.com
 ```
 
 ### `locations`
@@ -98,14 +114,6 @@ Changes take effect immediately in every running API and worker, and are recorde
 
 ## Planned commands
 
-### `owner:reset`
-
-Recovery when every Owner is locked out. It prints a one-time sign-in link for an existing Owner and removes their 2FA and passkeys, and the action is recorded in the audit log.
-
-```bash
-purros owner:reset --email owner@example.com
-```
-
 ### `features purge`
 
 ```bash
@@ -130,14 +138,6 @@ Rebuilds derived data from raw records, for example after changing usage recipes
 purros recalculate usage --location loc_01H… --from 2026-09-01 --to 2026-09-27
 purros recalculate kpis --from 2026-09-01
 ```
-
-### `email`
-
-```bash
-purros email test --to you@example.com
-```
-
-Sends a test email and prints the SMTP conversation if it fails.
 
 ### `storage`
 

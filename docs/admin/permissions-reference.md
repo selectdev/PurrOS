@@ -6,6 +6,8 @@ Permissions of a switched-off feature are hidden and have no effect. The live ca
 
 Every account linked to an employee record can see and manage its **own** data in the Employee Area without any of these permissions.
 
+The permission each API endpoint needs is listed in the [endpoint index](../api/endpoints.md). Location names, announcements, the calendar, time-off types and display metrics are readable by anyone signed in.
+
 ## Platform (always on)
 
 | Permission | Allows |
@@ -92,6 +94,7 @@ Switching features on and off is **Owner-only** and isn't a grantable permission
 
 | Permission | Allows |
 |---|---|
+| `purchasing.read` | View suppliers, catalogs, purchase orders and supplier invoices |
 | `suppliers.manage` | Manage suppliers, catalogs and order schedules |
 | `orders.create` | Create orders from suggestions or from scratch |
 | `purchase_orders.approve` | Approve purchase orders above the location's limit |

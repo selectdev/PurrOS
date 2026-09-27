@@ -194,6 +194,9 @@ func (r *Resource[Out, In]) Insert(c *httpx.Ctx, tx pgx.Tx, in In) (Out, error) 
 // Update replaces the writable columns of before inside tx.
 func (r *Resource[Out, In]) Update(c *httpx.Ctx, tx pgx.Tx, before Out, in In) (Out, error) {
 	r.init()
+	if err := r.checkReach(c, &before); err != nil {
+		return before, err
+	}
 	if r.Check != nil {
 		if err := r.Check(c, tx, &in, &before); err != nil {
 			return before, err
@@ -220,6 +223,9 @@ func (r *Resource[Out, In]) Update(c *httpx.Ctx, tx pgx.Tx, before Out, in In) (
 		` WHERE id = $1 RETURNING `+r.selectList(), args...))
 	if err != nil {
 		return out, r.mapError(err)
+	}
+	if err := r.checkReach(c, &out); err != nil { // moving a record out of reach
+		return out, err
 	}
 	if err := r.record(c, tx, "update", r.UpdatedEvent, &before, &out); err != nil {
 		return out, err
@@ -275,13 +281,25 @@ func parentOf[Out, In any](o Out, r *Resource[Out, In]) string {
 	return ""
 }
 
-// getScoped loads a record by ID, also matching the parent from the path.
+// getScoped loads a record by ID, also matching the parent from the path,
+// and checks the caller's reach.
 func (r *Resource[Out, In]) getScoped(c *httpx.Ctx, q db.Querier, lock bool) (Out, error) {
 	o, err := r.Get(c, q, "id", c.Param("id"), lock)
 	if err == nil && r.ParentParam != "" && parentOf(o, r) != c.Param(r.ParentParam) {
 		return o, httpx.NotFound(strings.ToUpper(r.Noun[:1]) + strings.ReplaceAll(r.Noun[1:], "_", " ") + " not found.")
 	}
+	if err == nil {
+		err = r.checkReach(c, &o)
+	}
 	return o, err
+}
+
+// checkReach checks a record's location against a person's limited reach.
+func (r *Resource[Out, In]) checkReach(c *httpx.Ctx, o *Out) error {
+	if r.LocationOf == nil || !c.Limited() {
+		return nil
+	}
+	return c.CheckLocationReach(r.LocationOf(o))
 }
 
 func idOf(v any) string {
@@ -368,14 +386,17 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 		aName = "an " + name
 	}
 	listDesc := ""
+	var filterNames []string
+	recordReach := r.LocationOf != nil
 	for _, f := range r.Filters {
+		filterNames = append(filterNames, f.Query)
 		listDesc += fmt.Sprintf("`%s` filters by %s. ", f.Query, strings.ReplaceAll(f.Column, "_", " "))
 	}
 	if !r.NoList {
 		routes = append(routes, httpx.Route{
 			Method: "GET", Path: r.Path, Tag: r.Tag, Feature: r.Feature, Scope: r.ReadScope,
 			Summary: "List " + name + "s", Description: strings.TrimSpace(listDesc),
-			Query: listQuery{}, Response: httpx.Page[Out]{},
+			Query: listQuery{}, Response: httpx.Page[Out]{}, Filters: filterNames,
 			Handler: func(c *httpx.Ctx) (any, error) {
 				lp, err := c.ParseList()
 				if err != nil {
@@ -416,13 +437,13 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	}
 	routes = append(routes, httpx.Route{
 		Method: "GET", Path: r.Path + "/{id}", Tag: r.Tag, Feature: r.Feature, Scope: r.ReadScope,
-		Summary: "Get " + aName, Response: *new(Out),
+		Summary: "Get " + aName, Response: *new(Out), RecordReach: recordReach,
 		Handler: func(c *httpx.Ctx) (any, error) { return r.getScoped(c, c.App.Pool, false) },
 	})
 	if !r.NoCreate {
 		routes = append(routes, httpx.Route{
 			Method: "POST", Path: r.Path, Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
-			Summary: "Create " + aName, Body: *new(In), Response: *new(Out), Status: 201,
+			Summary: "Create " + aName, Body: *new(In), Response: *new(Out), Status: 201, RecordReach: recordReach,
 			Handler: func(c *httpx.Ctx) (any, error) {
 				var in In
 				if err := c.Decode(&in); err != nil {
@@ -437,7 +458,7 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	if !r.NoUpdate {
 		routes = append(routes, httpx.Route{
 			Method: "PATCH", Path: r.Path + "/{id}", Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
-			Summary: "Update " + aName + " (partial)", Body: *new(In), Response: *new(Out),
+			Summary: "Update " + aName + " (partial)", Body: *new(In), Response: *new(Out), RecordReach: recordReach,
 			Handler: func(c *httpx.Ctx) (any, error) {
 				var out Out
 				err := c.InTx(func(tx pgx.Tx) error {
@@ -465,16 +486,20 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 		routes = append(routes,
 			httpx.Route{
 				Method: "GET", Path: r.Path + "/external/{externalId}", Tag: r.Tag, Feature: r.Feature, Scope: r.ReadScope,
-				Summary: "Get " + aName + " by external ID", Response: *new(Out),
+				Summary: "Get " + aName + " by external ID", Response: *new(Out), RecordReach: recordReach,
 				Handler: func(c *httpx.Ctx) (any, error) {
-					return r.Get(c, c.App.Pool, "external_id", c.Param("externalId"), false)
+					o, err := r.Get(c, c.App.Pool, "external_id", c.Param("externalId"), false)
+					if err == nil {
+						err = r.checkReach(c, &o)
+					}
+					return o, err
 				},
 			},
 			httpx.Route{
 				Method: "PUT", Path: r.Path + "/external/{externalId}", Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
 				Summary:     "Create or replace " + aName + " by external ID",
 				Description: "Returns 201 when created and 200 when updated.",
-				Body:        *new(In), Response: *new(Out),
+				Body:        *new(In), Response: *new(Out), RecordReach: recordReach,
 				Handler: func(c *httpx.Ctx) (any, error) {
 					var in In
 					if err := c.Decode(&in); err != nil {
@@ -511,7 +536,7 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	if r.Archive {
 		routes = append(routes, httpx.Route{
 			Method: "DELETE", Path: r.Path + "/{id}", Tag: r.Tag, Feature: r.Feature, Scope: r.WriteScope,
-			Summary: "Archive " + aName, Description: "Soft delete: history is kept.", Response: *new(Out),
+			Summary: "Archive " + aName, Description: "Soft delete: history is kept.", Response: *new(Out), RecordReach: recordReach,
 			Handler: func(c *httpx.Ctx) (any, error) {
 				var out Out
 				err := c.InTx(func(tx pgx.Tx) error {

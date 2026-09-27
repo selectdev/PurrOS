@@ -15,15 +15,16 @@ import (
 const feature = "time"
 
 type Punch struct {
-	ID         string    `json:"id"`
-	EmployeeID string    `json:"employeeId"`
-	Type       string    `json:"type"`
-	At         time.Time `json:"at"`
-	LocationID *string   `json:"locationId"`
-	DeviceID   string    `json:"deviceId"`
-	Source     string    `json:"source"`
-	ExternalID *string   `json:"externalId"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID         string     `json:"id"`
+	EmployeeID string     `json:"employeeId"`
+	Type       string     `json:"type"`
+	At         time.Time  `json:"at"`
+	LocationID *string    `json:"locationId"`
+	DeviceID   string     `json:"deviceId"`
+	Source     string     `json:"source"`
+	ExternalID *string    `json:"externalId"`
+	VoidedAt   *time.Time `json:"voidedAt" doc:"Replaced by an approved correction; kept for the record"`
+	CreatedAt  time.Time  `json:"createdAt"`
 }
 
 type PunchInput struct {
@@ -44,16 +45,17 @@ type PunchBatch struct {
 
 type ListQuery struct {
 	httpx.ListParams
-	EmployeeID string    `json:"employeeId,omitempty"`
-	From       time.Time `json:"from,omitempty" doc:"Punches at or after this time"`
-	To         time.Time `json:"to,omitempty" doc:"Punches before this time"`
+	EmployeeID    string    `json:"employeeId,omitempty"`
+	From          time.Time `json:"from,omitempty" doc:"Punches at or after this time"`
+	To            time.Time `json:"to,omitempty" doc:"Punches before this time"`
+	IncludeVoided bool      `json:"includeVoided,omitempty" doc:"Include punches replaced by corrections"`
 }
 
-const cols = `id, employee_id, type, at, location_id, device_id, source, external_id, created_at`
+const cols = `id, employee_id, type, at, location_id, device_id, source, external_id, voided_at, created_at`
 
 func scan(r pgx.Row) (Punch, error) {
 	var p Punch
-	err := r.Scan(&p.ID, &p.EmployeeID, &p.Type, &p.At, &p.LocationID, &p.DeviceID, &p.Source, &p.ExternalID, &p.CreatedAt)
+	err := r.Scan(&p.ID, &p.EmployeeID, &p.Type, &p.At, &p.LocationID, &p.DeviceID, &p.Source, &p.ExternalID, &p.VoidedAt, &p.CreatedAt)
 	return p, err
 }
 
@@ -90,7 +92,8 @@ func Routes() []httpx.Route {
 					WHERE id > $1 AND ($2::timestamptz IS NULL OR created_at >= $2)
 					  AND ($3 = '' OR employee_id = $3)
 					  AND ($4::timestamptz IS NULL OR at >= $4) AND ($5::timestamptz IS NULL OR at < $5)
-					ORDER BY id LIMIT $6`, lp.AfterID, lp.UpdatedSince, c.Query("employeeId"), from, to, lp.Limit+1)
+					  AND ($7 OR voided_at IS NULL)
+					ORDER BY id LIMIT $6`, lp.AfterID, lp.UpdatedSince, c.Query("employeeId"), from, to, lp.Limit+1, c.Query("includeVoided") == "true")
 				if err != nil {
 					return nil, err
 				}

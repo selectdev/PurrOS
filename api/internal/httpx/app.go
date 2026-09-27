@@ -42,12 +42,16 @@ type App struct {
 // Principal is the authenticated caller.
 type Principal struct {
 	KeyID                  string
-	Kind                   string // "integration" | "personal"
+	Kind                   string // "integration" | "personal" (a user's API key) | "session"
 	IntegrationID          string
 	IntegrationName        string // manifest name, also its integrationData namespace
 	IntegrationDisplayName string
 	UserID                 string
-	Scopes                 []string
+	Scopes                 []string // integration keys only
+
+	SessionID  string
+	MFAPending bool        // signed in with a password, second step still due
+	User       *UserAccess // personal keys and sessions
 }
 
 func (p *Principal) HasScope(s string) bool { return p != nil && slices.Contains(p.Scopes, s) }
@@ -62,6 +66,10 @@ type Ctx struct {
 	Principal *Principal
 	RequestID string
 	body      []byte
+
+	// limit is set when the caller holds the route's permission with a
+	// reach narrower than everyone.
+	limit *reachLimit
 }
 
 func (c *Ctx) Param(name string) string { return c.Params[name] }
@@ -182,8 +190,17 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 		if prob != nil {
 			return writeProblem(w, prob, reqID)
 		}
-		if route.Auth == AuthIntegration && p.Kind != "integration" {
+		switch {
+		case route.Auth == AuthIntegration && p.Kind != "integration":
 			return writeProblem(w, Forbidden("This endpoint is only available to integration keys."), reqID)
+		case route.Auth == AuthUser && p.User == nil:
+			return writeProblem(w, Forbidden("This endpoint is only available to people (a session or personal API key)."), reqID)
+		case route.Auth == AuthSession && p.Kind != "session":
+			return writeProblem(w, Forbidden("This endpoint needs a signed-in session."), reqID)
+		case p.MFAPending && !route.AllowMFAPending:
+			return writeProblem(w, MFARequired(), reqID)
+		case p.User != nil && p.User.MFAEnrollRequired && !route.AllowMFAPending && !route.AllowMFAEnroll:
+			return writeProblem(w, MFAEnrollmentRequired(), reqID)
 		}
 		c.Principal = p
 	}
@@ -199,9 +216,24 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 		}
 	}
 
-	// 3. Scope.
-	if route.Scope != "" && !c.Principal.HasScope(route.Scope) {
-		return writeProblem(w, Forbidden("This API key lacks the "+route.Scope+" scope."), reqID)
+	// 5. Body (read before access checks, which may look at it).
+	if r.Body != nil && r.Method != http.MethodGet {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+		if err != nil {
+			return writeProblem(w, BadRequest("Request body too large or unreadable."), reqID)
+		}
+		c.body = body
+	}
+
+	// 3. Scope (integrations) or permission and reach (people).
+	if c.Principal != nil {
+		if c.Principal.User == nil {
+			if route.Scope != "" && !c.Principal.HasScope(route.Scope) {
+				return writeProblem(w, Forbidden("This API key lacks the "+route.Scope+" scope."), reqID)
+			}
+		} else if err := c.authorize(); err != nil {
+			return a.fail(w, c, err)
+		}
 	}
 
 	// 4. Rate limit.
@@ -222,15 +254,6 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 				return writeProblem(w, RateLimited(res.ResetSeconds), reqID)
 			}
 		}
-	}
-
-	// 5. Body.
-	if r.Body != nil && r.Method != http.MethodGet {
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
-		if err != nil {
-			return writeProblem(w, BadRequest("Request body too large or unreadable."), reqID)
-		}
-		c.body = body
 	}
 
 	// 6. Idempotency (POST only).
@@ -259,6 +282,10 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 	out, err := route.Handler(c)
 	if err != nil {
 		return a.fail(w, c, err)
+	}
+	if c.limit != nil && c.limit.deferred && !c.limit.checked {
+		a.Log.Error("reach not checked", "path", route.Path, "requestId", reqID)
+		return writeProblem(w, OutOfReach("This request can't be limited to your reach."), reqID)
 	}
 	if raw, ok := out.(Raw); ok {
 		w.Header().Set("Content-Type", raw.ContentType)

@@ -107,3 +107,23 @@ func AsProblem(err error) (*Problem, bool) {
 	}
 	return Internal(), false
 }
+
+func SessionExpired() *Problem {
+	return newProblem(http.StatusUnauthorized, "session_expired", "Session expired", "Your session has ended. Sign in again.")
+}
+
+func MFARequired() *Problem {
+	return newProblem(http.StatusUnauthorized, "mfa_required", "Second step required",
+		"Enter a code from your authenticator app or a recovery code at POST /auth/sign-in/mfa.")
+}
+
+func MFAEnrollmentRequired() *Problem {
+	return newProblem(http.StatusForbidden, "mfa_enrollment_required", "Two-factor authentication required",
+		"Your company requires two-factor authentication. Set it up at POST /auth/mfa/totp:setup.")
+}
+
+// OutOfReach is returned when a permission is held with a reach that doesn't
+// cover the request.
+func OutOfReach(detail string) *Problem {
+	return newProblem(http.StatusForbidden, "out_of_reach", "Outside your reach", detail)
+}

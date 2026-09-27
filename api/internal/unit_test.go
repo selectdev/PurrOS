@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/selectdev/purros/api/internal/auth"
 	"github.com/selectdev/purros/api/internal/catalog"
 	"github.com/selectdev/purros/api/internal/features"
 	"github.com/selectdev/purros/api/internal/httpx"
@@ -112,5 +113,39 @@ func TestDateJSON(t *testing.T) {
 	}
 	if err := d.UnmarshalJSON([]byte(`"27/09/2026"`)); err == nil {
 		t.Fatal("accepted a non-ISO date")
+	}
+}
+
+func TestTOTPAndPasswords(t *testing.T) {
+	// RFC 6238 test vector (SHA-1, T=59s): 94287082 → last six digits.
+	secret := "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+	code, err := auth.TOTPCode(secret, auth.TOTPStep(time.Unix(59, 0)))
+	if err != nil || code != "287082" {
+		t.Fatalf("TOTP code %q, %v", code, err)
+	}
+	if _, ok := auth.VerifyTOTP(secret, "287082", time.Unix(59, 0), 0); !ok {
+		t.Fatal("valid code rejected")
+	}
+	if _, ok := auth.VerifyTOTP(secret, "287082", time.Unix(59, 0), auth.TOTPStep(time.Unix(59, 0))); ok {
+		t.Fatal("replayed code accepted")
+	}
+	if _, ok := auth.VerifyTOTP(secret, "287082", time.Unix(59+120, 0), 0); ok {
+		t.Fatal("stale code accepted")
+	}
+
+	h := auth.HashPassword("correct horse battery")
+	if ok, err := auth.VerifyPassword(h, "correct horse battery"); !ok || err != nil {
+		t.Fatalf("verify: %v %v", ok, err)
+	}
+	if ok, _ := auth.VerifyPassword(h, "wrong"); ok {
+		t.Fatal("wrong password accepted")
+	}
+	if auth.HashPassword("x") == auth.HashPassword("x") {
+		t.Fatal("hashes must be salted")
+	}
+	for pw, bad := range map[string]bool{"short": true, "password123": true, "a@b.co": true, "a perfectly fine one": false} {
+		if got := auth.CheckPasswordPolicy(pw, "a@b.co") != ""; got != bad {
+			t.Errorf("policy(%q) = %v, want %v", pw, got, bad)
+		}
 	}
 }

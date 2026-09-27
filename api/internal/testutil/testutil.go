@@ -88,7 +88,8 @@ func New(t *testing.T, scopes []string, events []string) *Env {
 		t.Fatal(err)
 	}
 
-	cfg := config.Config{URL: "http://test", Secret: testSecret, RateLimitPerMin: 10_000, IngestRateLimitPerMin: 10_000, MaxBatchSize: 1000}
+	cfg := config.Config{URL: "http://test", Secret: testSecret, RateLimitPerMin: 10_000, IngestRateLimitPerMin: 10_000, MaxBatchSize: 1000,
+		SMTP: config.SMTP{Host: "smtp.test", Port: 587, From: "PurrOS <noreply@test>"}}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	app, err := server.NewApp(cfg, pool, log)
 	if err != nil {

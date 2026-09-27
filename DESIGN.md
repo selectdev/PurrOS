@@ -24,7 +24,7 @@ This document covers how PurrOS is built: architecture, data model, API conventi
 | Rate limiting / cache | In-process by default; **Redis 7** optional | Redis only needed to share rate limits across several API instances |
 | Validation | `go-playground/validator` | Field errors reported by JSON path (`lines[0].quantity`) |
 | API docs | OpenAPI 3.1 generated from route declarations and Go types | Served at `/api/v1/openapi.json` |
-| People sign-in | Implemented in the API (planned): sessions, Argon2id, WebAuthn passkeys, OIDC and SAML libraries for Go | The web app never handles credentials itself |
+| People sign-in | Implemented in the API: server-side sessions, Argon2id, TOTP (passkeys, OIDC and SAML planned) | The web app never handles credentials itself |
 | Web app | **Next.js**, TypeScript, Tailwind CSS (`web/`, planned) | A client of the public API; talks to it with the TypeScript SDK |
 | SDK | `@purros/sdk` (TypeScript, generated from OpenAPI) | Used by the web app and integration authors |
 | Testing | Go `testing` against real PostgreSQL; Playwright for the web app | See §11 |
@@ -329,12 +329,12 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 
 - **AuthN (people):** a single account system for all users, admins and employees alike. Sign-in methods: email + password (Argon2id), magic link (single use, 15 min), passkeys (WebAuthn), and SSO via OIDC or SAML 2.0 with optional SCIM provisioning. Admins enable methods per install and can require SSO.
 - **2FA:** optional for every user (TOTP or passkey, plus recovery codes). It is off by default, and an Owner can make it mandatory per role or company-wide.
-- **Sessions:** stored server-side (Postgres, cached in Redis) and linked by a secure `httpOnly`, `SameSite=Lax` cookie. Idle and absolute timeouts are configurable. Sessions are revoked on password change, and users can see and revoke their own sessions. Sign-in is rate-limited with temporary lockout.
+- **Sessions:** stored server-side in Postgres (only a hash of the token) and linked by a secure `httpOnly`, `SameSite=Lax` cookie, with a 12-hour idle timeout (15 minutes on shared devices) and a 30-day absolute timeout. A new token is issued when the second factor completes. Sessions are revoked on password change, reset and deactivation, and users can see and revoke their own sessions. Sign-in is rate-limited per IP and account, with a 15-minute lockout after 10 failures.
 - **AuthN (software):** API keys for `/api/v1`, either integration keys (scoped at registration) or personal keys (requires `api_keys.personal`; they act with the creating user's role and reach, never more). Keys can be given an expiry and can be rotated, and their last-used time and IP are shown.
-- **AuthZ:** organization-defined roles on top of a fixed permission catalog (see §8.1). Checks are enforced in services, not only in routes.
+- **AuthZ:** organization-defined roles on top of a fixed permission catalog (see §8.1). Every route is mapped to a permission in one table (`internal/catalog/routes.go`), and the server refuses to start if a route is missing. When a permission's reach is narrower than Everyone, the request pipeline requires a target inside it (a `locationId` or `employeeId` the handler filters by, a path parameter, or a location/employee looked up for the record in `internal/catalog/reach.go`); CRUD resources check each record's location inside the transaction. Anything the pipeline can't narrow is refused (`out_of_reach`) rather than shown in full. The Employee Area (`/me`) pins every request to the caller's own employee.
 - **Audit log:** every mutating service call records actor (user, API key or integration), action, entity, before/after diff, IP, and request ID. The audit log is append-only.
 - **Data protection:** secrets and webhook signing keys are encrypted at rest with `PURROS_SECRET`-derived keys. Sensitive employee fields (national ID, bank details) are encrypted at the column level and masked in the UI and API unless the caller has explicit permission.
-- **Web security:** strict CSP and security headers on every API response, CSRF protection for cookie-based web sessions, rate-limited sign-in, and Argon2id password hashing.
+- **Web security:** strict CSP and security headers on every API response, CSRF protection for cookie-based web sessions (state-changing requests must carry PurrOS's own `Origin`), rate-limited sign-in, and Argon2id password hashing.
 - **Dependencies:** Dependabot/Renovate plus `govulncheck` in CI.
 
 ### 8.1 Roles & permissions model

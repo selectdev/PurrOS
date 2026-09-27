@@ -338,7 +338,8 @@ type SensorInput struct {
 var sensors = &crud.Resource[Sensor, SensorInput]{
 	Path: "/sensors", Table: "sensors", Prefix: ids.Sensor, Noun: "sensor", Tag: tag,
 	Feature: "operations.sensors", ReadScope: "operations:read", WriteScope: "operations:write", External: true, Archive: true,
-	Filters: []crud.Filter{{Query: "locationId", Column: "location_id"}},
+	Filters:    []crud.Filter{{Query: "locationId", Column: "location_id"}},
+	LocationOf: func(s *Sensor) string { return s.LocationID },
 	Defaults: func(in *SensorInput) {
 		if in.Kind == "" {
 			in.Kind = "temperature"

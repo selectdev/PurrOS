@@ -76,10 +76,17 @@ Every user's profile has an **Access** tab that lists what they can do and where
 
 ## API
 
-| Endpoint | Scope | Notes |
+| Endpoint | Who | Notes |
 |---|---|---|
 | `GET /api/v1/permissions` | any | The permission catalog for enabled features |
-| `GET /api/v1/roles` | `organization:read` | Roles and their permissions |
-| `GET /api/v1/users` | `organization:read` | Accounts, roles and assignments |
+| `GET /api/v1/roles`, `GET /api/v1/roles/{id}` | `organization:read` / `users.read` | Roles and their permissions |
+| `GET /api/v1/users`, `GET /api/v1/users/{id}` | `organization:read` / `users.read` | Accounts, roles and assignments |
+| `POST /api/v1/users` | `users.manage` | Invite. The invitation is emailed, or its link returned when email is off or `sendEmail` is false |
+| `PATCH /api/v1/users/{id}` | `users.manage` | Name, role, employee link and assignments |
+| `POST /api/v1/users/{id}:deactivate`, `:reactivate` | `users.manage` | Deactivating signs the person out everywhere and stops their personal keys |
+| `POST /api/v1/users/{id}:reset-sign-in` | `users.manage` | Signs them out, optionally removes their password and 2FA, and sends a link to set a new password |
+| `POST /api/v1/roles`, `PATCH /api/v1/roles/{id}`, `DELETE /api/v1/roles/{id}` | `roles.manage` | With the escalation rules above |
 
-Roles and user assignments are managed in the UI, or kept in sync with your identity provider through SCIM. There are no write endpoints for integration keys, so an integration can't escalate access.
+Managing accounts and roles needs `users.manage` or `roles.manage` with reach **Everyone**, and works only for people (sessions and personal keys). Integration keys can read roles and users but never change them, so an integration can't escalate access.
+
+The Owner role can't be changed, the last active Owner can't be demoted or deactivated, and nobody can change their own role or deactivate themselves.

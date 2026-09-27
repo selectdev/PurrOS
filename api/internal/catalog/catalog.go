@@ -73,6 +73,7 @@ var Permissions = []Permission{
 	{"transfers.manage", "inventory.transfers", "Send and receive transfers"},
 
 	// Purchasing
+	{"purchasing.read", "purchasing", "View suppliers, purchase orders and supplier invoices"},
 	{"suppliers.manage", "purchasing", "Manage suppliers, catalogs and order schedules"},
 	{"orders.create", "purchasing", "Create orders"},
 	{"purchase_orders.approve", "purchasing", "Approve purchase orders above the limit"},
@@ -208,4 +209,10 @@ var Events = map[string]string{
 	"notification.requested": "communication",
 
 	"alert.triggered": "insights", "recommendation.created": "insights.recommendations",
+}
+
+// RouteReachQuery returns the reach query for a route.
+func RouteReachQuery(method, path string) (string, bool) {
+	q, ok := RouteReach[method+" "+path]
+	return q, ok
 }

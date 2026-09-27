@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,12 +12,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/selectdev/purros/api/internal/catalog"
 	"github.com/selectdev/purros/api/internal/config"
 	"github.com/selectdev/purros/api/internal/db"
 	"github.com/selectdev/purros/api/internal/features"
 	"github.com/selectdev/purros/api/internal/httpx"
+	"github.com/selectdev/purros/api/internal/modules/account"
 	"github.com/selectdev/purros/api/internal/modules/cash"
 	"github.com/selectdev/purros/api/internal/modules/communication"
+	"github.com/selectdev/purros/api/internal/modules/employeearea"
 	"github.com/selectdev/purros/api/internal/modules/equipment"
 	"github.com/selectdev/purros/api/internal/modules/insights"
 	"github.com/selectdev/purros/api/internal/modules/inventory"
@@ -47,6 +51,9 @@ func NewApp(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (*httpx.App
 	}
 	router := &httpx.Router{}
 	router.Add(platform.Routes()...)
+	router.Add(account.Routes()...)
+	router.Add(employeearea.Routes()...)
+	router.Add(employeearea.CorrectionRoutes()...)
 	router.Add(organization.Routes()...)
 	router.Add(people.Routes()...)
 	router.Add(people.ExtraRoutes()...)
@@ -64,6 +71,10 @@ func NewApp(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (*httpx.App
 	router.Add(equipment.Routes()...)
 	router.Add(communication.Routes()...)
 	router.Add(insights.Routes()...)
+	router.SetReach(catalog.RouteReachQuery)
+	if missing := router.SetPermissions(catalog.RoutePermission); len(missing) > 0 {
+		return nil, fmt.Errorf("routes without a permission: %v", missing)
+	}
 
 	return &httpx.App{
 		Config:   cfg,

@@ -15,6 +15,10 @@ Record hours accurately, apply your labor rules, get timesheets approved, and ha
 
 Each punch records its source and device. Punches are **never edited**: corrections are separate records with a reason, and both stay visible.
 
+### Punch corrections
+
+Employees ask for a correction from the [Employee Area](employee-area.md) (a missed punch, or a wrong one to replace) with a reason. A manager with `punches.correct` for that employee approves or rejects it. Approving adds the corrected punch and marks the replaced one **void**: it stays on record (`includeVoided=true` shows it) but no longer counts. Corrections into a locked pay period are refused. Rebuild timesheets after approving to update their totals.
+
 ## Kiosk timeclock
 
 1. Go to **Settings → Kiosks** (`kiosk.manage`) and choose **Add kiosk** for a location.
@@ -91,5 +95,6 @@ Hours are broken down by employee, earning code (regular, overtime, holiday, pre
 | `GET /api/v1/timesheets`, `GET /api/v1/timesheets/{id}` | `time:read` |
 | `GET /api/v1/pay-periods`, `GET /api/v1/pay-periods/{id}/export` | `payroll:read` |
 | `GET/POST /api/v1/time-off/requests`, `GET /api/v1/time-off/balances` | `time:read` / `time:write` |
+| `GET /api/v1/punch-corrections`, `POST /api/v1/punch-corrections/{id}:approve`, `:reject` | `time:read` / `time:write` |
 
 Events: `punch.received`, `punch.corrected`, `punch.exception`, `timesheet.approved`, `timesheet.rejected`, `pay_period.locked`, `time_off.requested`, `time_off.approved`, `time_off.rejected`.

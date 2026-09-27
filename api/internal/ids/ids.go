@@ -98,3 +98,13 @@ const (
 	Recognition     = "rec"
 	AlertRule       = "alr"
 )
+
+// Prefixes for sign-in and email.
+const (
+	Session   = "ses"
+	AuthToken = "atk"
+	Email     = "eml"
+)
+
+// PunchCorrection prefixes punch correction requests.
+const PunchCorrection = "pcr"
