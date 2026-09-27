@@ -11,38 +11,43 @@ import (
 	"github.com/selectdev/purros/api/internal/db"
 	"github.com/selectdev/purros/api/internal/httpx"
 	"github.com/selectdev/purros/api/internal/ids"
+	"github.com/shopspring/decimal"
 )
 
 const feature = "inventory"
 
 type Item struct {
-	ID         string     `json:"id"`
-	SKU        string     `json:"sku"`
-	Name       string     `json:"name"`
-	Barcode    *string    `json:"barcode"`
-	Category   *string    `json:"category"`
-	BaseUnit   string     `json:"baseUnit"`
-	ExternalID *string    `json:"externalId"`
-	Version    int        `json:"version"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	ArchivedAt *time.Time `json:"archivedAt"`
+	ID          string           `json:"id"`
+	SKU         string           `json:"sku"`
+	Name        string           `json:"name"`
+	Barcode     *string          `json:"barcode"`
+	Category    *string          `json:"category"`
+	BaseUnit    string           `json:"baseUnit"`
+	ExternalID  *string          `json:"externalId"`
+	DefaultCost *decimal.Decimal `json:"defaultCost"`
+	TrackStock  bool             `json:"trackStock"`
+	Version     int              `json:"version"`
+	CreatedAt   time.Time        `json:"createdAt"`
+	UpdatedAt   time.Time        `json:"updatedAt"`
+	ArchivedAt  *time.Time       `json:"archivedAt"`
 }
 
 type ItemInput struct {
-	SKU        string  `json:"sku" validate:"required,max=100"`
-	Name       string  `json:"name" validate:"required,max=200"`
-	Barcode    *string `json:"barcode,omitempty" validate:"omitempty,max=100"`
-	Category   *string `json:"category,omitempty" validate:"omitempty,max=100"`
-	BaseUnit   string  `json:"baseUnit,omitempty" validate:"omitempty,max=20"`
-	ExternalID *string `json:"externalId,omitempty" validate:"omitempty,extid"`
+	SKU         string           `json:"sku" validate:"required,max=100"`
+	Name        string           `json:"name" validate:"required,max=200"`
+	Barcode     *string          `json:"barcode,omitempty" validate:"omitempty,max=100"`
+	Category    *string          `json:"category,omitempty" validate:"omitempty,max=100"`
+	BaseUnit    string           `json:"baseUnit,omitempty" validate:"omitempty,max=20"`
+	ExternalID  *string          `json:"externalId,omitempty" validate:"omitempty,extid"`
+	DefaultCost *decimal.Decimal `json:"defaultCost,omitempty" doc:"Cost used before the first receipt sets an average cost"`
+	TrackStock  *bool            `json:"trackStock,omitempty" doc:"Default true; false for services and non-stock items"`
 }
 
-const cols = `id, sku, name, barcode, category, base_unit, external_id, version, created_at, updated_at, archived_at`
+const cols = `id, sku, name, barcode, category, base_unit, external_id, default_cost, track_stock, version, created_at, updated_at, archived_at`
 
 func scan(r pgx.Row) (Item, error) {
 	var i Item
-	err := r.Scan(&i.ID, &i.SKU, &i.Name, &i.Barcode, &i.Category, &i.BaseUnit, &i.ExternalID, &i.Version,
+	err := r.Scan(&i.ID, &i.SKU, &i.Name, &i.Barcode, &i.Category, &i.BaseUnit, &i.ExternalID, &i.DefaultCost, &i.TrackStock, &i.Version,
 		&i.CreatedAt, &i.UpdatedAt, &i.ArchivedAt)
 	return i, err
 }
@@ -60,7 +65,8 @@ func get(ctx context.Context, q db.Querier, where string, arg any, lock bool) (I
 }
 
 func (i Item) toInput() ItemInput {
-	return ItemInput{SKU: i.SKU, Name: i.Name, Barcode: i.Barcode, Category: i.Category, BaseUnit: i.BaseUnit, ExternalID: i.ExternalID}
+	return ItemInput{SKU: i.SKU, Name: i.Name, Barcode: i.Barcode, Category: i.Category, BaseUnit: i.BaseUnit, ExternalID: i.ExternalID,
+		DefaultCost: i.DefaultCost, TrackStock: &i.TrackStock}
 }
 
 func conflict(err error) error {
@@ -82,10 +88,11 @@ func insert(c *httpx.Ctx, tx pgx.Tx, in ItemInput) (Item, error) {
 	if in.BaseUnit == "" {
 		in.BaseUnit = "each"
 	}
+	track := in.TrackStock == nil || *in.TrackStock
 	it, err := scan(tx.QueryRow(c, `
-		INSERT INTO items (id, sku, name, barcode, category, base_unit, external_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+cols,
-		ids.New(ids.Item), in.SKU, in.Name, in.Barcode, in.Category, in.BaseUnit, in.ExternalID))
+		INSERT INTO items (id, sku, name, barcode, category, base_unit, external_id, default_cost, track_stock)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING `+cols,
+		ids.New(ids.Item), in.SKU, in.Name, in.Barcode, in.Category, in.BaseUnit, in.ExternalID, in.DefaultCost, track))
 	if err != nil {
 		return it, conflict(err)
 	}
@@ -97,11 +104,15 @@ func update(c *httpx.Ctx, tx pgx.Tx, before Item, in ItemInput) (Item, error) {
 	if in.BaseUnit == "" {
 		in.BaseUnit = before.BaseUnit
 	}
+	track := before.TrackStock
+	if in.TrackStock != nil {
+		track = *in.TrackStock
+	}
 	after, err := scan(tx.QueryRow(c, `
-		UPDATE items SET sku=$2, name=$3, barcode=$4, category=$5, base_unit=$6, external_id=$7,
+		UPDATE items SET sku=$2, name=$3, barcode=$4, category=$5, base_unit=$6, external_id=$7, default_cost=$8, track_stock=$9,
 			version=version+1, updated_at=now()
 		WHERE id=$1 RETURNING `+cols,
-		before.ID, in.SKU, in.Name, in.Barcode, in.Category, in.BaseUnit, in.ExternalID))
+		before.ID, in.SKU, in.Name, in.Barcode, in.Category, in.BaseUnit, in.ExternalID, in.DefaultCost, track))
 	if err != nil {
 		return after, conflict(err)
 	}

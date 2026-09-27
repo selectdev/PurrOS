@@ -15,11 +15,14 @@ import (
 	"github.com/selectdev/purros/api/internal/db"
 	"github.com/selectdev/purros/api/internal/features"
 	"github.com/selectdev/purros/api/internal/httpx"
+	"github.com/selectdev/purros/api/internal/modules/cash"
 	"github.com/selectdev/purros/api/internal/modules/inventory"
 	"github.com/selectdev/purros/api/internal/modules/organization"
 	"github.com/selectdev/purros/api/internal/modules/people"
 	"github.com/selectdev/purros/api/internal/modules/platform"
+	"github.com/selectdev/purros/api/internal/modules/purchasing"
 	"github.com/selectdev/purros/api/internal/modules/sales"
+	"github.com/selectdev/purros/api/internal/modules/scheduling"
 	"github.com/selectdev/purros/api/internal/modules/timeclock"
 	"github.com/selectdev/purros/api/internal/secure"
 )
@@ -42,9 +45,17 @@ func NewApp(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (*httpx.App
 	router.Add(platform.Routes()...)
 	router.Add(organization.Routes()...)
 	router.Add(people.Routes()...)
+	router.Add(people.ExtraRoutes()...)
 	router.Add(timeclock.Routes()...)
+	router.Add(timeclock.TimesheetRoutes()...)
+	router.Add(timeclock.TimeOffRoutes()...)
+	router.Add(scheduling.Routes()...)
+	router.Add(purchasing.Routes()...)
 	router.Add(inventory.Routes()...)
+	router.Add(inventory.StockRoutes()...)
 	router.Add(sales.Routes()...)
+	router.Add(sales.OrderRoutes()...)
+	router.Add(cash.Routes()...)
 
 	return &httpx.App{
 		Config:   cfg,

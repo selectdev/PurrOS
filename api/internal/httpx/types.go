@@ -56,3 +56,42 @@ func (d *Date) ScanDate(v pgtype.Date) error {
 func (d Date) DateValue() (pgtype.Date, error) {
 	return pgtype.Date{Time: d.Time, Valid: !d.IsZero()}, nil
 }
+
+// TimeOfDay is a wall-clock time serialized as "HH:MM".
+type TimeOfDay struct{ Minutes int }
+
+func ParseTimeOfDay(s string) (TimeOfDay, error) {
+	t, err := time.Parse("15:04", s)
+	if err != nil {
+		return TimeOfDay{}, fmt.Errorf("must be a time in HH:MM format")
+	}
+	return TimeOfDay{Minutes: t.Hour()*60 + t.Minute()}, nil
+}
+
+func (t TimeOfDay) String() string { return fmt.Sprintf("%02d:%02d", t.Minutes/60, t.Minutes%60) }
+
+func (t TimeOfDay) MarshalJSON() ([]byte, error) { return json.Marshal(t.String()) }
+
+func (t *TimeOfDay) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("must be a time in HH:MM format")
+	}
+	v, err := ParseTimeOfDay(s)
+	if err != nil {
+		return err
+	}
+	*t = v
+	return nil
+}
+
+// ScanTime implements pgtype.TimeScanner.
+func (t *TimeOfDay) ScanTime(v pgtype.Time) error {
+	*t = TimeOfDay{Minutes: int(v.Microseconds / 60_000_000)}
+	return nil
+}
+
+// TimeValue implements pgtype.TimeValuer.
+func (t TimeOfDay) TimeValue() (pgtype.Time, error) {
+	return pgtype.Time{Microseconds: int64(t.Minutes) * 60_000_000, Valid: true}, nil
+}

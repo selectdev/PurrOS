@@ -12,6 +12,7 @@ import (
 	"github.com/selectdev/purros/api/internal/db"
 	"github.com/selectdev/purros/api/internal/httpx"
 	"github.com/selectdev/purros/api/internal/ids"
+	"github.com/selectdev/purros/api/internal/modules/inventory"
 	"github.com/selectdev/purros/api/internal/modules/organization"
 	"github.com/shopspring/decimal"
 )
@@ -354,6 +355,16 @@ func ingestTransactions(c *httpx.Ctx) (any, error) {
 				}
 			}
 
+			bizDate := loc.BusinessDate(in.OccurredAt)
+			var closed bool
+			if err := tx.QueryRow(c, `SELECT EXISTS (SELECT 1 FROM business_days WHERE location_id=$1 AND business_date=$2 AND status='closed')`,
+				loc.ID, bizDate).Scan(&closed); err != nil {
+				return err
+			}
+			if closed {
+				warnings = append(warnings, httpx.FieldError{Path: "occurredAt", Message: "This business day is closed; the change is flagged for review"})
+			}
+
 			lineItems := make([]*string, len(in.Lines))
 			for j, l := range in.Lines {
 				id, err := items.match(c, l)
@@ -419,7 +430,7 @@ func ingestTransactions(c *httpx.Ctx) (any, error) {
 						return err
 					}
 				}
-				return nil
+				return inventory.SyncSaleStock(c, sp, id)
 			})
 			if err != nil {
 				if db.IsForeignKeyViolation(err) {
@@ -730,6 +741,22 @@ func Routes() []httpx.Route {
 						return err
 					}
 					out = MapResult{Source: in.Source, Ref: in.Ref, ItemID: in.ItemID, LinesUpdated: tag.RowsAffected()}
+					// Re-apply stock usage for the transactions that now have a known item.
+					rows, err := tx.Query(c, `SELECT DISTINCT l.transaction_id FROM sales_transaction_lines l
+						JOIN sales_transactions t ON t.id = l.transaction_id
+						WHERE t.source = $1 AND l.item_id = $2 AND `+refSQL+` = $3`, in.Source, in.ItemID, in.Ref)
+					if err != nil {
+						return err
+					}
+					txnIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+					if err != nil {
+						return err
+					}
+					for _, id := range txnIDs {
+						if err := inventory.SyncSaleStock(c, tx, id); err != nil {
+							return err
+						}
+					}
 					return c.Record(tx, httpx.Change{Action: "sales.map_item", EntityType: "item_mapping",
 						EntityID: in.Source + "|" + in.Ref, After: out})
 				})

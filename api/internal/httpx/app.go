@@ -97,6 +97,14 @@ func (c *Ctx) Decode(v any) error {
 	return Validate(v)
 }
 
+// DecodeOptional decodes the body into v if one was sent; an empty body is fine.
+func (c *Ctx) DecodeOptional(v any) error {
+	if len(c.body) == 0 {
+		return nil
+	}
+	return c.Decode(v)
+}
+
 // InTx runs fn in a database transaction.
 func (c *Ctx) InTx(fn func(tx pgx.Tx) error) error {
 	tx, err := c.App.Pool.Begin(c)
@@ -121,6 +129,13 @@ func (c *Ctx) RequireFeature(key string) error {
 		return FeatureDisabled(key)
 	}
 	return nil
+}
+
+// Raw is a non-JSON response body, such as a CSV export or a PDF.
+type Raw struct {
+	ContentType string
+	Filename    string
+	Body        []byte
 }
 
 // Result lets a handler choose the status code or add headers.
@@ -244,6 +259,15 @@ func (a *App) serve(w http.ResponseWriter, r *http.Request, reqID string) int {
 	out, err := route.Handler(c)
 	if err != nil {
 		return a.fail(w, c, err)
+	}
+	if raw, ok := out.(Raw); ok {
+		w.Header().Set("Content-Type", raw.ContentType)
+		if raw.Filename != "" {
+			w.Header().Set("Content-Disposition", `attachment; filename="`+raw.Filename+`"`)
+		}
+		w.WriteHeader(route.Status)
+		_, _ = w.Write(raw.Body)
+		return route.Status
 	}
 	status := route.Status
 	body := out

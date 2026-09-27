@@ -129,10 +129,11 @@ type schemaGen struct {
 }
 
 var (
-	timeType    = reflect.TypeOf(time.Time{})
-	dateType    = reflect.TypeOf(Date{})
-	decimalType = reflect.TypeOf(decimal.Decimal{})
-	rawType     = reflect.TypeOf(json.RawMessage{})
+	timeType      = reflect.TypeOf(time.Time{})
+	dateType      = reflect.TypeOf(Date{})
+	timeOfDayType = reflect.TypeOf(TimeOfDay{})
+	decimalType   = reflect.TypeOf(decimal.Decimal{})
+	rawType       = reflect.TypeOf(json.RawMessage{})
 )
 
 func (g *schemaGen) schema(t reflect.Type) map[string]any {
@@ -144,6 +145,8 @@ func (g *schemaGen) schema(t reflect.Type) map[string]any {
 		return map[string]any{"type": "string", "format": "date-time"}
 	case dateType:
 		return map[string]any{"type": "string", "format": "date", "example": "2026-09-27"}
+	case timeOfDayType:
+		return map[string]any{"type": "string", "pattern": `^\d{2}:\d{2}$`, "example": "09:00"}
 	case decimalType:
 		return map[string]any{"type": "string", "pattern": `^-?\d+(\.\d+)?$`, "example": "12.50"}
 	case rawType:
