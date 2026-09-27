@@ -73,6 +73,8 @@ src/
   app/
     (auth)/               # sign-in, SSO callbacks
     (employee)/           # Employee Area (self-service portal)
+    (kiosk)/              # shared-device timeclock (clock codes, no data access)
+    (display)/            # Team Displays (paired screens, read-only)
     (dashboard)/          # authenticated UI, one folder per module
       people/
       time/
@@ -91,6 +93,13 @@ src/
     inventory/
     purchasing/
     sales/
+    organization/         # hierarchy, locations, inherited settings
+    scheduling/           # forecasting, schedule builder, labor rules
+    cash/
+    operations/           # forms, checklists, audits, corrective actions
+    equipment/
+    communication/        # announcements, messaging, calendar, files, displays
+    insights/             # reports, alerts, recommended actions
     platform/             # users, roles, api keys, webhooks, audit
   lib/
     db.ts                 # Prisma client singleton
@@ -128,9 +137,16 @@ examples/
 People         Employee, Department, Position, Location, EmployeeDocument, CustomFieldDef
 Time           Punch, PunchCorrectionRequest, Shift, Timesheet, TimesheetEntry, PayPeriod, OvertimeRule, TimeOffRequest, TimeOffBalance
 Pay            PayRate (effective-dated history), Payslip (pushed in by a payroll integration)
-Inventory      Item, ItemVariant, UnitOfMeasure, Warehouse, BinLocation, StockMovement, StockLevel, StockCount
+Inventory      Item, ItemVariant, UnitOfMeasure, Warehouse, BinLocation, StockMovement, StockLevel, StockCount, WasteEntry, Transfer, UsageRecipe, Batch
 Purchasing     Supplier, PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine
-Sales          Customer, PriceList, SalesOrder, SalesOrderLine, Shipment, Invoice
+Sales          SalesSummary, SalesTransaction, Customer, PriceList, SalesOrder, SalesOrderLine, Shipment, Invoice
+Organization   OrgUnit (hierarchy node: region/district/…), Location, LocationSetting (inherited)
+Scheduling     DemandForecast, StaffingRule, Schedule, ScheduledShift, Availability, ShiftSwapRequest, LaborRuleSet, Skill, EmployeeSkill
+Cash           Drawer, CashCount, SafeDrop, SafeCount, BankDeposit, PaidOut, TenderReconciliation
+Operations     FormTemplate, FormSchedule, FormSubmission, CorrectiveAction, Audit, SensorReading
+Equipment      Asset, MaintenancePlan, WorkOrder
+Communication  Announcement, Acknowledgment, Conversation, Message, CalendarEvent, FileLink, Display, DisplayProfile
+Insights       ReportDefinition, ReportSchedule, AlertRule, Recommendation
 Platform       User, Role, RolePermission, UserLocationAssignment, UserDepartmentAssignment, ApiKey, Integration, IntegrationConfig, WebhookEndpoint, WebhookDelivery, OutboxEvent, AuditLog, IdempotencyRecord
 ```
 

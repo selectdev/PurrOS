@@ -2,7 +2,7 @@
 
 **An open-source, self-hosted ERP for growing businesses, built around an integration API.**
 
-PurrOS covers the core of running a business of 20–500 people: employees, time and attendance, inventory, and purchasing and sales. It is built so the tools you already use (HR/employment platforms, timeclocks, inventory scanners) can connect to it in an afternoon instead of a quarter.
+PurrOS covers the day-to-day running of a business of 20–500 people, whether it has one site or many: employees, scheduling, time and attendance, cash, inventory, ordering, sales, checklists, equipment, team communication and reporting. It is built so the tools you already use (HR/employment platforms, point-of-sale, timeclocks, inventory scanners) can connect to it in an afternoon instead of a quarter.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 ![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)
@@ -21,17 +21,158 @@ Most ERP systems fall into one of two groups: enterprise suites that take months
 - **Mid-range by design.** Includes what a growing business needs and leaves out what it doesn't. See [PRODUCT.md](PRODUCT.md) for scope and non-goals.
 - **Open source.** Licensed under AGPL-3.0.
 
-## Modules (v1)
+## Who it's for
 
-| Module | What it covers |
+PurrOS isn't built for one industry. It suits any business with staff, stock, cash or several locations:
+
+| Kind of business | Typical use |
 |---|---|
-| **People** | Employee records, departments, positions, managers, employment status, custom fields |
-| **Time & Attendance** | Clock-in/out punches (from any timeclock), shifts, timesheets, approvals, overtime rules, payroll export |
-| **Inventory** | Items and SKUs, units of measure, warehouses and bin locations, stock levels, transfers, adjustments, stock counts |
-| **Purchasing** | Suppliers, purchase orders, goods receipts |
-| **Sales** | Customers, sales orders, fulfilment, basic invoicing |
+| Retail and multi-store chains | Store scheduling, till and deposit control, stock counts, transfers between stores |
+| Restaurants, cafés and hospitality | Labor forecasting from sales, waste tracking, opening/closing and safety checklists |
+| Franchise and multi-unit operators | District/regional hierarchy, cross-location reports, standard checklists everywhere |
+| Clinics, salons, gyms and service businesses | Rosters by skill or certification, supplies usage, equipment maintenance |
+| Distribution, wholesale and light manufacturing | Warehouse stock, purchasing, receiving, shift work |
+| Field service and facilities | Crews, vehicles and equipment, inspections with photos, parts inventory |
+
+Industry words are configurable. A *location* can be called a store, branch, site, clinic or warehouse, and ready-made templates (checklists, roles, reports) are starting points you can edit.
+
+## Features
+
+> Features below describe the planned product. See the [roadmap in PRODUCT.md](PRODUCT.md#9-roadmap) for the order they're built in.
+
+| Area | What it covers |
+|---|---|
+| **Organization & Locations** | Company → region → district → location hierarchy, location profiles, opening hours |
+| **People & HR** | Employee records, positions, skills and certifications, documents, onboarding |
+| **Scheduling & Forecasting** | Demand forecasting, automatic schedules, availability, shift swaps, open shifts, labor rules |
+| **Time & Attendance** | Kiosk timeclock and timeclock integrations, schedule-aware punching, breaks, timesheets, payroll export |
+| **Cash Management** | Drawer/till counts, safe drops, safe counts, bank deposits, over/short, card and digital payment reconciliation |
+| **Inventory** | Real-time stock, mobile counts, waste, transfers, usage recipes, actual vs expected usage, cost of goods |
+| **Purchasing & Ordering** | Suggested orders, supplier catalogs, purchase orders, receiving, invoice matching |
+| **Sales** | POS/e-commerce sales feeds, customers, sales orders, fulfilment, invoicing |
+| **Forms, Checklists & Compliance** | Form builder, scheduled checklists, audits and inspections, sensor readings, corrective actions |
+| **Equipment & Assets** | Asset register, preventive maintenance, repair tickets, warranty and lifecycle tracking |
+| **Communication** | Announcements, group and direct messages, company calendar, shared files and links |
+| **Team Displays** | Screens in the workplace showing goals, live KPIs, recognition and shift reminders |
+| **Reports & Insights** | Dashboards, multi-location rollups, scheduled reports, alerts, recommended actions |
 | **Employee Area** | Self-service portal where each employee sees and manages their own data |
-| **Platform** | Users, roles and permissions, API keys, webhooks, audit log, integrations |
+| **Platform** | Accounts and roles, API keys, webhooks, audit log, integrations |
+
+### Organization & Locations
+
+- **Flexible hierarchy.** Model the business as it is: company → regions → districts → locations, with as many levels as you need, named however you like. The hierarchy drives what people can see, how reports roll up and where settings apply.
+- **Location profiles.** Address, timezone, opening hours, departments or work areas, and which labor rules, checklists and suppliers apply.
+- **Settings that inherit.** Set something once at company or region level and let locations inherit it, with local overrides where allowed.
+
+### People & HR
+
+- Employee records: personal and contact details, employment type and status, positions, pay rates with history, managers, and custom fields.
+- **Skills and certifications** (e.g. forklift licence, first aid, food handling, barista, cash handling) with expiry dates. The scheduler uses them, and reminders go out before they expire.
+- **Documents**: contracts, IDs and certificates stored per employee, with expiry tracking and a choice of what the employee can see.
+- **Onboarding checklists**: collect documents, policy acknowledgments and training for new hires. Recruiting and applicant tracking stay in your own tools, connected through an integration.
+- **Rehire, transfer and termination** workflows that keep history intact.
+
+### Scheduling & Forecasting
+
+- **Demand forecasting.** PurrOS forecasts the numbers that drive staffing, such as sales, transactions, foot traffic, orders, appointments or units shipped. It learns from your history, seasonality and holidays, and you can adjust the forecast by hand.
+- **Staffing rules.** Turn the forecast into needed hours with rules such as "1 cashier per 40 transactions an hour" or "2 technicians per 10 appointments", plus fixed minimum coverage per area.
+- **Automatic schedule builder.** Generates shifts to match demand and assigns the best-fitting people based on availability, skills, certifications, target hours, labor cost and fairness. Managers then adjust it with drag and drop.
+- **Gap and overstaffing view.** Graphs of scheduled versus needed staff for each hour show where the schedule is short or over, suggest who could fill a gap, and point out skills that would give more coverage if people were trained.
+- **Availability, time off and preferences** entered by employees and respected by the scheduler.
+- **Shift swaps, open shifts and pick-ups**, with manager approval rules.
+- **Labor rules engine.** Configurable rules per location or jurisdiction: breaks and meal periods, maximum hours, minimum rest between shifts, minor work restrictions, overtime thresholds, and advance-notice (predictive scheduling) rules with premium-pay flags. PurrOS applies the rules you configure. It does not give legal advice.
+- **Schedule cost and budget.** Projected labor cost and labor as a percentage of sales, shown while you build the schedule.
+- **Publish and notify.** Employees are notified of new or changed shifts and get reminders before each shift.
+
+### Time & Attendance
+
+- **Kiosk timeclock.** A built-in, browser-based timeclock for a shared tablet or PC at each location. Staff clock in with a badge, QR code or personal clock code, with an optional photo. A clock code only records punches and never gives access to anyone's data.
+- **Any other timeclock** (hardware terminals, mobile apps, access-control systems) can send punches through the API.
+- **Schedule-aware punching.** Early clock-ins, late clock-outs and unscheduled shifts are blocked or flagged unless a manager approves them, which cuts unplanned overtime and punch abuse.
+- **Breaks and attestations.** Break reminders and enforcement follow the labor rules, and staff can confirm at clock-out that they took their breaks.
+- **Timesheets.** Built automatically from punches, with exception alerts (missed punches, missed breaks, overtime risk), manager then payroll approval, and pay period locking.
+- **Payroll export** to any payroll provider through CSV templates or an integration, including regular, overtime, holiday and premium hours by job code and cost center.
+
+### Cash Management
+
+For any business that takes cash or card payments at a counter:
+
+- **Register-to-bank workflow.** Guided steps for opening, shift-change and closing drawer/till counts, cash skims and safe drops, safe counts, change orders and bank deposits.
+- **Over/short tracking** per drawer, shift and employee, with thresholds that alert a manager.
+- **Deposit verification.** Record deposit bag numbers and amounts, then match them against bank data from an integration or a statement import. Unmatched or late deposits are flagged.
+- **Non-cash payment reconciliation.** Compare card, digital wallet, gift card and third-party platform totals in the POS with what the processor actually settled.
+- **Paid-outs and petty cash** with receipt photos and approval limits.
+- **Controls.** Blind counts, two-person verification for large amounts, and a full audit trail from the drawer to the bank.
+- Expected cash and sales totals come from your POS through an integration (`POST /api/v1/sales-summaries`).
+
+### Inventory
+
+- **Real-time stock.** Every receipt, sale, transfer, waste entry and count updates stock immediately through an append-only stock ledger, so you can see stock on hand and cost of goods sold at any moment without waiting for a month-end count.
+- **Mobile counts.** Count by storage area in walking order on a phone or tablet, with barcode scanning. Counts can be daily, weekly, monthly or spot counts of chosen items, and you can count several units per item (case, box, each).
+- **Waste and shrink.** Log waste, spoilage, damage, theft and samples with reason codes and photos.
+- **Transfers between locations** that the sending location ships and the receiving location confirms, with any differences flagged.
+- **Usage recipes.** Define what one sold product or service uses (a meal uses its ingredients, a haircut uses product, a repair uses parts). PurrOS then calculates **expected (theoretical) usage** from sales and compares it with **actual usage** from counts.
+- **Gain/loss and opportunity reports.** See which items, locations and periods lose the most money to variance, and by how much.
+- **Batch and expiry tracking** for perishable or regulated items (optional per item).
+- Multiple warehouses and bin locations, units of measure with conversions, and weighted average costing.
+
+### Purchasing & Ordering
+
+- **Suggested orders.** Calculated from par levels, current stock, forecast demand, what's already on order and each supplier's delivery schedule. The manager reviews and adjusts before sending.
+- **Supplier catalogs and order guides** with pack sizes, prices, minimum order quantities and order cut-off days.
+- **Purchase orders** with approval thresholds, sent by email or through a supplier integration.
+- **Receiving** by scanning or checklist, with short, damaged and substituted items recorded.
+- **Invoice matching.** Check the supplier's invoice against the PO and the goods received, and flag price changes.
+
+### Sales
+
+- **Sales feeds** from any POS or e-commerce platform (daily totals, hourly figures, or individual transactions) through the API. These feed forecasting, cash, inventory usage and reports.
+- Customers, price lists, quotes and sales orders with stock reservation.
+- Pick, pack and ship, basic invoicing (PDF) and payment status, exportable to accounting.
+
+### Forms, Checklists & Compliance
+
+- **Form builder.** Turn any paper process into a digital form, with question types such as checkboxes, choices, numbers with allowed ranges, temperatures, text, photos, signatures, date and time, and item or asset pickers.
+- **Scheduled checklists.** Opening and closing routines, hourly or per-shift checks, weekly cleaning, monthly safety walks, all assigned to a role, person or location and completed on a phone or tablet.
+- **Real-time compliance alerts.** Overdue checklists and failed answers (e.g. a fridge above 5 °C, a missing fire extinguisher) alert the right people immediately.
+- **Corrective actions.** A failed item creates a follow-up task with an owner, a due date and photo evidence of the fix.
+- **Audits and inspections** with scoring, such as district manager visits, health and safety audits, brand standards and vehicle inspections. Scores can be compared across locations.
+- **Sensor readings.** Temperature, humidity or meter sensors can send readings through the API, which fill in checks automatically and raise alerts when readings are out of range.
+- **Other uses:** employee evaluations, incident reports and customer complaint logs.
+- A **template library** to start from: opening/closing, cleaning logs, food safety (HACCP), workplace safety, equipment checks and more.
+
+### Equipment & Assets
+
+- **Asset register** per location: make, model, serial number, purchase date, cost, warranty, supplier and service provider, and QR code labels that open the asset's page when scanned.
+- **Preventive maintenance** schedules by time or usage, which create tasks automatically.
+- **Repair tickets.** Staff report a problem with photos from their phone. The ticket is assigned to a technician or outside provider and tracked to completion.
+- **History and cost.** Downtime, repairs and maintenance cost over each asset's lifetime help decide when to repair and when to replace.
+
+### Communication
+
+- **Announcements** to the whole company, a region, a location or a role, with read receipts and required acknowledgment for policies.
+- **Messaging**: group chats (by location, team or custom group) and one-to-one messages. Managers can reach staff without sharing personal phone numbers.
+- **Company calendar** for events, deadlines, deliveries, inspections and visits, which can be filtered by location.
+- **Shared files and links**: a library of manuals, policies, training material and useful links, visible according to role and location.
+- **Notifications** by email and web push, and by SMS or other channels through an integration.
+
+### Team Displays
+
+Turn any screen in the workplace (a TV with a streaming stick, a smart TV browser, a tablet on the wall) into a live team board:
+
+- Today's goals and live KPIs (e.g. sales vs target, service times, orders shipped, checklist completion).
+- **Recognition and gamification**: shout-outs, leaderboards, team challenges and fundraising drives.
+- Announcements, upcoming shifts and shift reminders, who's on shift, and celebrations such as work anniversaries (opt-in).
+- Screens are set up with a one-time pairing code, and each display shows only the information its display profile allows.
+
+### Reports & Insights
+
+- **Dashboards per role** that update close to real time: a supervisor sees their team, a district manager their district, an owner the whole company.
+- **Multi-location rollups** by the organization hierarchy, with location rankings and comparisons against last week, last year, forecast and budget.
+- **Built-in KPIs**: sales, labor cost and labor as a percentage of sales, sales per labor hour, overtime, cash over/short, cost of goods and variance, waste, checklist compliance, equipment downtime, and staff turnover.
+- **Alerts** when a KPI crosses a threshold, and **scheduled reports** delivered by email.
+- **Custom report builder** with CSV and Excel export. All report data is also available through the API.
+- **Recommended actions.** PurrOS ranks today's biggest issues across your locations (e.g. overtime risk, cash shortages, missed checklists, high waste), explains why each was flagged using your own data, and suggests a next step and an owner. This works on rules out of the box. An **optional AI assistant** can be enabled with a model provider you choose, including self-hosted models. It is off by default, and no data leaves your server unless you configure it to.
 
 ## Employee Area
 
@@ -41,11 +182,14 @@ Every employee gets their own sign-in to the **Employee Area**, a self-service p
 
 | Section | What's shown |
 |---|---|
+| **My schedule** | Upcoming shifts with location and role, open shifts they can pick up, and swap requests |
 | **My time** | Every clock-in/out punch with its source (which timeclock or device), shifts, daily and weekly totals, overtime, and timesheet status (pending, approved, locked) |
 | **My pay** | Current pay rate and rate history, an **estimated gross pay** per pay period (approved hours × rate, including overtime), and **payslips** when a payroll integration sends them in |
 | **Time off** | Leave balances, accrual history, and past and upcoming requests |
 | **My profile** | Personal and contact details, emergency contacts, position, department, manager, location, start date |
 | **My documents** | Contracts, certifications and other files shared with them, with expiry dates |
+| **My tasks** | Checklists and forms assigned to them, onboarding steps, and policies to acknowledge |
+| **Messages** | Announcements, team chats and direct messages |
 | **Activity** | A log of changes made to their record: who changed what, and when |
 
 Estimated pay is clearly labelled as an estimate before taxes and deductions, because PurrOS does not run payroll itself. Payslips are the payroll provider's documents, pushed into PurrOS by an integration (`POST /api/v1/payslips`, `payroll:write` scope).
@@ -54,6 +198,8 @@ Estimated pay is clearly labelled as an estimate before taxes and deductions, be
 
 - **Request punch corrections.** Flag a missed or wrong punch and give a reason. The manager approves or rejects it. The original punch is never overwritten, and the correction is kept in the audit log.
 - **Request time off.** Submit requests against their balances and follow the approval status.
+- **Set availability and manage shifts.** Enter when they can work, pick up open shifts, and offer or swap shifts with co-workers, subject to manager approval.
+- **Complete tasks.** Fill in assigned checklists and forms, report equipment problems, and acknowledge policies.
 - **Update contact info.** Phone, address and emergency contacts can be changed directly. Sensitive fields such as legal name or bank details go to HR for approval.
 - **Export my data.** Download a complete copy of everything PurrOS stores about them (profile, punches, timesheets, pay, time off, documents, audit history) as JSON and CSV in a ZIP file.
 
@@ -61,7 +207,7 @@ Employees only ever see their own data. They never see co-workers' records, and 
 
 ## Authentication
 
-PurrOS uses one account system for everyone who signs in: owners, admins, HR, managers, warehouse staff and employees. What each person can see and do depends on their **role**, not on a separate login. Software such as integrations and scripts authenticates with **API keys**.
+PurrOS uses one account system for everyone who signs in: owners, admins, HR, managers, supervisors and employees. What each person can see and do depends on their **role**, not on a separate login. Software such as integrations and scripts authenticates with **API keys**.
 
 ### Sign-in methods for people
 
@@ -96,7 +242,7 @@ Every account has **one role**, and each organization defines its **own roles** 
 - **Permissions are fixed and fine-grained.** PurrOS defines the list of permissions (e.g. `employees.read`, `pay.read`, `timesheets.approve`, `inventory.adjust`, `purchase_orders.approve`, `roles.manage`), and a role is simply a chosen set of them. The full list is shown in the role editor and at `GET /api/v1/permissions`.
 - **Each permission has a reach.** When you add a permission to a role, you also choose how far it reaches:
   - **Own team:** the person's direct and indirect reports
-  - **Assigned locations**
+  - **Assigned locations** (or whole regions and districts in the hierarchy, including locations added to them later)
   - **Assigned departments**
   - **Everyone**
 
@@ -104,14 +250,15 @@ Every account has **one role**, and each organization defines its **own roles** 
 - **Everyone keeps their Employee Area.** Any account linked to an employee record can always see its own data, whatever its role. Roles only add access to other people's data and to company operations.
 - **Two system roles.** **Owner** has every permission and can't be edited or deleted, and at least one Owner must exist. **Employee** is the default role for new accounts and has no extra permissions. You can choose a different default.
 
-**Example setup**
+**Example setup** (for a multi-location business)
 
 | Role | Sample permissions | Reach |
 |---|---|---|
 | HR | `employees.read`, `employees.write`, `employees.sensitive.read`, `documents.manage`, `time_off.approve` | Everyone |
 | Payroll | `timesheets.read`, `pay_periods.lock`, `pay.read`, `pay.write`, `payroll.export` | Everyone |
-| District Manager | `employees.read`, `timesheets.approve`, `punches.correct`, `time_off.approve`, `inventory.read`, `reports.read` | Assigned locations |
-| Supervisor | `employees.read`, `timesheets.approve`, `time_off.approve` | Own team |
+| District Manager | `employees.read`, `schedules.read`, `timesheets.approve`, `cash.read`, `inventory.read`, `audits.conduct`, `reports.read` | Assigned district |
+| Store / Site Manager | `employees.read`, `schedules.manage`, `timesheets.approve`, `punches.correct`, `cash.manage`, `orders.create`, `checklists.manage`, `equipment.manage` | Assigned locations |
+| Supervisor | `employees.read`, `schedules.read`, `timesheets.approve`, `time_off.approve`, `cash.count`, `checklists.complete` | Own team |
 | Warehouse Lead | `inventory.read`, `inventory.adjust`, `stock_counts.manage`, `goods_receipts.create` | Assigned locations |
 
 New installs start with a few roles like these as editable starting points. You can change or delete any of them.
