@@ -490,6 +490,17 @@ Useful scripts:
 | `pnpm test:e2e` | End-to-end tests (Playwright) |
 | `pnpm prisma studio` | Browse the database |
 
+## Documentation
+
+The full documentation is in [`docs/`](docs/README.md):
+
+- [Getting started](docs/README.md#getting-started): installation, configuration, first-run setup, key concepts
+- [Administration](docs/README.md#administration): organization, roles and permissions, authentication, feature switches
+- [Feature guides](docs/README.md#feature-guides): one guide per feature, including the Employee Area
+- [API](docs/api/README.md), [data ingestion](docs/api/data-ingestion.md) and [webhooks](docs/api/webhooks.md)
+- [Integrations](docs/integrations/README.md): how to connect a POS, online store, timeclock, HR or payroll system
+- [Operations](docs/README.md#operations): backups, upgrades, monitoring, security, CLI
+
 ## Project documents
 
 - [PRODUCT.md](PRODUCT.md): vision, target users, scope, non-goals, roadmap

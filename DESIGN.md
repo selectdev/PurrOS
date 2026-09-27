@@ -336,7 +336,7 @@ Only the owning integration can write its namespace. Any caller with read scope 
 
 ### SDK and template
 
-- **`@purros/sdk`** (TypeScript, generated from the OpenAPI spec): typed client, automatic pagination, idempotency keys, retries on `429`/`5xx`, `verifyWebhook(req, secret)`, and typed event payloads.
+- **`@purros/sdk`** (TypeScript, generated from the OpenAPI spec): typed client, automatic pagination, idempotency keys, retries on `429`/`5xx`, `verifyWebhook(rawBody, signatureHeader, secret)`, and typed event payloads.
 - **`packages/integration-template`**: a minimal Node service with a webhook endpoint, a scheduled sync loop, a config loader and a Dockerfile.
 - **Examples** in `examples/integrations/`: a generic CSV/REST timeclock bridge and a webhook logger. These are teaching material, not supported vendor integrations.
 
