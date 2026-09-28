@@ -2,6 +2,8 @@
 
 Feature key: `scheduling`. Needs People & HR and Time & Attendance.
 
+> **Status:** The API covers demand drivers, forecasts and adjustments, staffing rules and needs, shifts with conflict checks, publishing, open-shift claims, swaps and availability. The automatic schedule builder, schedule-aware punching, notifications and the schedule editor are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Build schedules that match expected demand, respect everyone's availability and your labor rules, and stay on budget.
 
 ## How it fits together

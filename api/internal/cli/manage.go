@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"github.com/selectdev/purros/api/internal/config"
 	"github.com/selectdev/purros/api/internal/events"
 	"github.com/selectdev/purros/api/internal/features"
-	"github.com/selectdev/purros/api/internal/secure"
 	"github.com/spf13/cobra"
 )
 
@@ -37,8 +35,8 @@ func (a *app) locationsCmd() *cobra.Command {
 	f.StringVar(&in.Name, "name", "", "location name")
 	f.StringVar(&in.Code, "code", "", "short code, e.g. 101")
 	f.StringVar(&in.ExternalID, "external-id", "", "ID of this location in your POS or other systems")
-	f.StringVar(&in.Timezone, "timezone", "UTC", "time zone, e.g. Europe/London")
-	f.StringVar(&in.Currency, "currency", "USD", "currency (ISO 4217)")
+	f.StringVar(&in.Timezone, "timezone", "", "time zone, e.g. Europe/London (default: the company's)")
+	f.StringVar(&in.Currency, "currency", "", "currency (ISO 4217) (default: the company's)")
 	f.StringVar(&in.Cutoff, "cutoff", "00:00", "time the business day ends, e.g. 04:00")
 	cmd.AddCommand(create)
 	cmd.AddCommand(&cobra.Command{
@@ -76,130 +74,6 @@ func (a *app) locationsCmd() *cobra.Command {
 			})
 		},
 	})
-	return cmd
-}
-
-type kvFlags map[string]any
-
-func (k kvFlags) String() string { return "" }
-func (k kvFlags) Type() string   { return "key=value" }
-func (k kvFlags) Set(v string) error {
-	key, val, ok := strings.Cut(v, "=")
-	if !ok || key == "" {
-		return errors.New("use key=value")
-	}
-	k[key] = val
-	return nil
-}
-
-func (a *app) integrationsCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "integrations", Short: "Register, list, pause and resume integrations"}
-	var manifestPath string
-	var approveSensitive bool
-	cfgVals := kvFlags{}
-	register := &cobra.Command{
-		Use:   "register",
-		Short: "Register an integration from its manifest; prints its API key once",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx := cmd.Context()
-			return withPool(ctx, true, func(cfg config.Config, pool *pgxpool.Pool) error {
-				m, err := loadManifest(manifestPath)
-				if err != nil {
-					return err
-				}
-				if err := m.Validate(ctx, features.NewStore(pool), approveSensitive); err != nil {
-					return err
-				}
-				box, err := secure.NewBox(cfg.Secret)
-				if err != nil {
-					return err
-				}
-				reg, err := RegisterIntegration(ctx, pool, box, m, cfgVals)
-				if err != nil {
-					return err
-				}
-				return a.emit(reg, func() {
-					a.printf("Integration %q registered (%s).\n\n", m.DisplayName, reg.IntegrationID)
-					a.printf("  PURROS_INTEGRATION_KEY=%s\n", reg.APIKey)
-					if reg.WebhookSecret != "" {
-						a.printf("  PURROS_WEBHOOK_SECRET=%s\n", reg.WebhookSecret)
-					}
-					a.printf("\nStore these now: they are shown only once.\n")
-				})
-			})
-		},
-	}
-	register.Flags().StringVar(&manifestPath, "manifest", "purros-integration.json", "path to the manifest")
-	register.Flags().BoolVar(&approveSensitive, "approve-sensitive", false, "approve the people:sensitive scope (Owner decision)")
-	register.Flags().Var(cfgVals, "config", "config value as key=value (repeatable)")
-	cmd.AddCommand(register)
-
-	cmd.AddCommand(&cobra.Command{
-		Use:   "list",
-		Short: "List integrations",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return withPool(cmd.Context(), false, func(_ config.Config, pool *pgxpool.Pool) error {
-				rows, err := pool.Query(cmd.Context(), `
-					SELECT i.name, i.status, array_to_string(i.scopes, ' '), coalesce(i.health_status, '-'),
-					       i.last_heartbeat_at, coalesce(string_agg(k.id || ' ' || k.display_prefix || '…', ', '), '')
-					FROM integrations i LEFT JOIN api_keys k ON k.integration_id = i.id AND k.revoked_at IS NULL
-					GROUP BY i.id ORDER BY i.name`)
-				if err != nil {
-					return err
-				}
-				type integ struct {
-					Name          string     `json:"name"`
-					Status        string     `json:"status"`
-					Scopes        string     `json:"scopes"`
-					Health        string     `json:"health"`
-					LastHeartbeat *time.Time `json:"lastHeartbeatAt"`
-					Keys          string     `json:"keys"`
-				}
-				list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (integ, error) {
-					var x integ
-					return x, r.Scan(&x.Name, &x.Status, &x.Scopes, &x.Health, &x.LastHeartbeat, &x.Keys)
-				})
-				if err != nil {
-					return err
-				}
-				return a.emit(list, func() {
-					var out [][]string
-					for _, x := range list {
-						last := "-"
-						if x.LastHeartbeat != nil {
-							last = x.LastHeartbeat.Local().Format("2006-01-02 15:04")
-						}
-						out = append(out, []string{x.Name, x.Status, x.Health, last, x.Keys, x.Scopes})
-					}
-					a.table("NAME\tSTATUS\tHEALTH\tLAST HEARTBEAT\tKEYS\tSCOPES", out)
-				})
-			})
-		},
-	})
-	for _, s := range []struct{ use, to string }{{"pause", "paused"}, {"resume", "active"}} {
-		s := s
-		cmd.AddCommand(&cobra.Command{
-			Use:   s.use + " <name>",
-			Short: map[string]string{"pause": "Pause an integration (its keys stop working)", "resume": "Resume a paused integration"}[s.use],
-			Args:  cobra.ExactArgs(1),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return withPool(cmd.Context(), false, func(_ config.Config, pool *pgxpool.Pool) error {
-					var id string
-					err := pool.QueryRow(cmd.Context(), `UPDATE integrations SET status = $2, updated_at = now() WHERE name = $1 RETURNING id`, args[0], s.to).Scan(&id)
-					if errors.Is(err, pgx.ErrNoRows) {
-						return fmt.Errorf("no integration %q", args[0])
-					}
-					if err != nil {
-						return err
-					}
-					a.printf("Integration %s is now %s.\n", args[0], s.to)
-					return events.Audit(cmd.Context(), pool, events.AuditEntry{Actor: cliActor, Action: "integration." + s.use, EntityType: "integration", EntityID: id})
-				})
-			},
-		})
-	}
 	return cmd
 }
 
@@ -306,7 +180,6 @@ func (a *app) featuresCmd() *cobra.Command {
 		},
 	})
 	for _, enable := range []bool{true, false} {
-		enable := enable
 		use, short := "disable <key>", "Switch a feature off (with what depends on it)"
 		if enable {
 			use, short = "enable <key>", "Switch a feature on (with what it needs)"

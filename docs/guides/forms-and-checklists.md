@@ -2,6 +2,8 @@
 
 Feature key: `operations`.
 
+> **Status:** The API covers forms with pass/fail rules, submissions, scored audits, corrective actions, and sensors with out-of-range events. Scheduled checklists, overdue alerts and the template library are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Replace paper checklists, logs and inspection sheets with digital forms that get done on time, alert people when something is wrong, and prove it was handled.
 
 ## Form builder
@@ -75,4 +77,4 @@ Completion rate (on time, late, missed) by location and form, failed items, open
 | `POST /api/v1/sensor-readings` (batch) | `operations:write` |
 | `GET /api/v1/corrective-actions`, `GET /api/v1/audits` | `operations:read` |
 
-Events: `form.submitted`, `form.answer_failed`, `checklist.overdue`, `corrective_action.created`, `corrective_action.closed`, `audit.completed`, `sensor.out_of_range`.
+Events: `form.submitted`, `form.answer_failed`, `checklist.overdue` *(planned)*, `corrective_action.created`, `corrective_action.closed`, `audit.completed`, `sensor.out_of_range`.

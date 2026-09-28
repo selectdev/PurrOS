@@ -103,7 +103,7 @@ func SignWebhook(secret string, t time.Time, body []byte) string {
 // VerifyWebhook checks a PurrOS-Signature header against a raw body.
 func VerifyWebhook(secret, header string, body []byte, now time.Time, tolerance time.Duration) error {
 	var ts, sig string
-	for _, part := range strings.Split(header, ",") {
+	for part := range strings.SplitSeq(header, ",") {
 		k, v, _ := strings.Cut(part, "=")
 		switch k {
 		case "t":

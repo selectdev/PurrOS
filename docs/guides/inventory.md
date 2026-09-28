@@ -2,6 +2,8 @@
 
 Feature key: `inventory`.
 
+> **Status:** The API covers items, the stock ledger with weighted-average cost, levels and reorder points, adjustments, waste, counts, transfers and usage recipes. Batch and expiry tracking, bin locations, unit conversions, gain/loss reports and mobile counting screens are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Know what you have, where it is, what it's worth, and where you're losing money, in real time.
 
 ## Items

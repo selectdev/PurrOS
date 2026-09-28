@@ -6,7 +6,7 @@ The `purros` binary is the API server, the background worker and the admin tool 
 docker compose exec api purros <command> [options]
 ```
 
-Outside Docker, configuration comes from the environment, or from a file with `--env-file .env` (or `PURROS_ENV_FILE`). In local development: `go run ./cmd/purros <command>` in `api/`.
+Outside Docker, configuration comes from the environment and from `config/purros.env` (or `$PURROS_CONFIG_DIR/purros.env`) when that file exists. Use `--env-file <path>` (or `PURROS_ENV_FILE`) to load a different file. In local development: `go run ./cmd/purros <command>` in `api/`.
 
 `purros help` lists every command, and `purros <command> --help` explains one with examples. Shell completion: `purros completion bash|zsh|fish|powershell`.
 
@@ -14,7 +14,7 @@ Outside Docker, configuration comes from the environment, or from a file with `-
 
 | Option | Effect |
 |---|---|
-| `--env-file <path>` | Load environment variables from a file. Variables already set in the environment win. |
+| `--env-file <path>` | Load environment variables from this file instead of `$PURROS_CONFIG_DIR/purros.env`. Variables already set in the environment win. |
 | `--json` | Machine-readable output, for scripts and monitoring |
 | `-y`, `--yes` | Answer yes to confirmations (for scripts) |
 | `--no-input` | Never prompt; fail when something is missing |
@@ -57,7 +57,7 @@ Warnings (`!`) don't fail the run.
 
 ### `init`
 
-Writes a `.env` file with a new `PURROS_SECRET` and database password, readable only by you. `--force` rewrites an existing file, but always keeps its `PURROS_SECRET` and passwords.
+Writes `purros.env` (with a new `PURROS_SECRET`) and `postgres.env` (with a new database password) into the configuration directory, `./config` by default (`$PURROS_CONFIG_DIR`). Both are readable only by you. `--force` rewrites existing files, but always keeps their `PURROS_SECRET` and passwords.
 
 ```bash
 purros init --url https://erp.example.com [--dir /opt/purros]
@@ -94,7 +94,7 @@ Use `rotate` if `PURROS_SECRET` may have leaked:
 
 1. Stop PurrOS.
 2. Run the rotation. It re-encrypts integration settings, webhook secrets and authenticator secrets in one transaction, and aborts without changes if any value can't be decrypted.
-3. Put the new secret in `.env` and start PurrOS again.
+3. Put the new secret in `config/purros.env` and start PurrOS again.
 
 Keep the old secret as long as you keep backups made before the rotation.
 
@@ -157,19 +157,27 @@ purros backup restore <file | s3:name> [--replace] [--no-safety-backup]
 purros backup prune [--keep N] [--older-than 30d] [--remote] [--dry-run]
 ```
 
-- **Where backups go:** the default directory is `PURROS_BACKUP_DIR`, or `./backups` when S3 uploads are off. With S3 on and no directory, backups go only to the bucket.
+- **Where backups go:** the default directory is `PURROS_BACKUP_DIR`, or `$PURROS_STATE_DIR/backups` when S3 uploads are off. With S3 on and no directory, backups go only to the bucket.
 - **Remote backups:** refer to a backup in the bucket as `s3:<name>`.
 - **Passphrase:** it comes from `--passphrase-file`, then `PURROS_BACKUP_PASSPHRASE`, then a prompt.
 
 ## Management
 
+Integrations, webhook endpoints and the organization can also be managed through the API; see [Integrations](../integrations/README.md#managing-integrations), [Webhooks](../api/webhooks.md) and [Organization & locations](../admin/organization-and-locations.md#api).
+
 | Command | What it does |
 |---|---|
-| `locations create --name … [--external-id] [--timezone] [--currency] [--cutoff]` | Adds a location. `--cutoff` is when its business day ends. |
+| `locations create --name … [--code] [--external-id] [--timezone] [--currency] [--cutoff]` | Adds a location (and sends `location.created`). `--cutoff` is when its business day ends; time zone and currency default to the company's. Org units and departments are managed with the [API](../admin/organization-and-locations.md#api). |
 | `locations list` | Lists locations |
-| `integrations register --manifest … [--config k=v] [--approve-sensitive]` | Registers an integration and prints its API key and webhook secret **once** |
+| `integrations register --manifest … [--config k=v] [--approve-sensitive]` | Registers an integration and prints its API key and webhook secret **once**. `--config` values are converted to each field's type. |
+| `integrations update <name> --manifest … [--config k=v] [--approve-sensitive]` | Installs a new version of its manifest (scopes, config fields, webhooks). Prints a webhook secret only if the update adds an endpoint. |
 | `integrations list` | Status, health, last heartbeat, keys and scopes |
-| `integrations pause <name>`, `integrations resume <name>` | Pausing makes its keys stop working |
+| `integrations pause <name>`, `integrations resume <name>` | Pausing makes its keys stop working and holds its webhooks; resuming sends them |
+| `integrations rotate-key <name> [--grace 1h]` | Issues a new API key (printed once). The old keys keep working for `--grace` (`0` revokes them now, at most `168h`). |
+| `integrations remove <name>` | Removes it with its keys, config, logs and webhook endpoint (asks to confirm) |
+| `webhooks list` | Every webhook endpoint with its integration, status, failure count, and pending and failed deliveries |
+| `webhooks enable <endpointId>`, `webhooks disable <endpointId>` | Re-enabling resets the failure count and sends waiting deliveries |
+| `webhooks retry-failed <endpointId>` | Queues every failed delivery again, e.g. after a long outage |
 | `api-keys list`, `api-keys revoke <keyId>` | Active integration and personal keys |
 | `features list`, `features enable <key>`, `features disable <key>` | Switches features on or off, together with what they need or what depends on them |
 

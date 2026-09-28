@@ -7,20 +7,21 @@ This tutorial builds a small integration in TypeScript that:
 
 The same pattern works for online stores, timeclocks and most other systems. For other languages, generate a client from `/api/v1/openapi.json` and follow the same steps.
 
-## 1. Start from the template
+## 1. Set up the project
+
+> The `@purros/sdk` package and the integration template are **planned**. Until they ship, this tutorial uses a small `fetch`-based client (step 4) with the same method names, so the code carries over when the SDK arrives.
 
 ```bash
-npx degit selectdev/PurrOS/packages/integration-template pos-bridge
-cd pos-bridge
-npm install
+mkdir pos-bridge && cd pos-bridge
+npm init -y && npm install express && npm install -D typescript tsx @types/express @types/node
 ```
 
-The template contains:
+Lay it out like the planned template:
 
 ```
 src/
   index.ts          # starts the sync loop and the webhook server
-  purros.ts         # PurrOS SDK client
+  purros.ts         # PurrOS API client
   sync.ts           # your sync logic
   webhooks.ts       # your webhook handlers
 purros-integration.json
@@ -48,7 +49,22 @@ Dockerfile
 
 ## 3. Register it in PurrOS
 
-Go to **Settings → Integrations → Add integration**, upload the manifest, and fill in the config. Put the key and secret you're given in `.env`:
+Register it with the API as someone with `integrations.manage` (for example with a personal API key):
+
+```bash
+curl -X POST https://erp.example.com/api/v1/integrations \
+  -H "Authorization: Bearer $PURROS_PERSONAL_KEY" -H "Content-Type: application/json" \
+  -d "{\"manifest\": $(cat purros-integration.json), \"config\": {\"posBaseUrl\": \"https://pos.example.com\", \"posApiToken\": \"…\"}}"
+```
+
+or with the CLI on the PurrOS server:
+
+```bash
+docker compose exec api purros integrations register --manifest /path/to/purros-integration.json \
+  --config posBaseUrl=https://pos.example.com --config posApiToken=…
+```
+
+Either way, the API key and webhook secret are returned **once**. Put them in the integration's `.env`:
 
 ```dotenv
 PURROS_URL=https://erp.example.com
@@ -61,13 +77,49 @@ PURROS_WEBHOOK_SECRET=whsec_…
 `src/purros.ts`:
 
 ```ts
-import { PurrOS } from "@purros/sdk";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
-export const purros = new PurrOS({
-  baseUrl: process.env.PURROS_URL!,
-  apiKey: process.env.PURROS_INTEGRATION_KEY!,
-  // retries on 429 and 5xx with backoff, and sets idempotency keys, by default
-});
+const baseUrl = process.env.PURROS_URL!.replace(/\/$/, "") + "/api/v1";
+const apiKey = process.env.PURROS_INTEGRATION_KEY!;
+
+// Calls the API with an idempotency key, retrying 429 and 5xx with backoff.
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const key = randomUUID();
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(baseUrl + path, {
+      method,
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": key },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (res.ok) return res.status === 204 ? (undefined as T) : res.json();
+    if ((res.status === 429 || res.status >= 500) && attempt < 5) {
+      const wait = Number(res.headers.get("Retry-After")) || 2 ** attempt;
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      continue;
+    }
+    throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+  }
+}
+
+export const purros = {
+  sales: { transactions: { batch: (b: unknown) => call<{ results: { status: string }[] }>("POST", "/sales/transactions:batch", b) } },
+  integrations: {
+    self: {
+      config: () => call<Record<string, string>>("GET", "/integrations/self/config"),
+      health: (b: { status: "ok" | "warning" | "error"; message?: string }) => call("POST", "/integrations/self/health", b),
+      log: (b: { message: string }) => call("POST", "/integrations/self/logs", b),
+    },
+  },
+};
+
+// Checks PurrOS-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + body)>.
+export function verifyWebhook(body: Buffer, header: string | undefined, secret: string) {
+  const parts = Object.fromEntries((header ?? "").split(",").map((p) => p.split("=", 2)));
+  const expected = createHmac("sha256", secret).update(`${parts.t}.`).update(body).digest("hex");
+  const ok = parts.v1?.length === expected.length && timingSafeEqual(Buffer.from(parts.v1), Buffer.from(expected));
+  if (!ok || Math.abs(Date.now() / 1000 - Number(parts.t)) > 300) throw new Error("bad signature");
+  return JSON.parse(body.toString("utf8"));
+}
 
 export const config = await purros.integrations.self.config();
 // → { posBaseUrl: "...", posApiToken: "..." }
@@ -125,9 +177,8 @@ Because records are unique on `(source, externalId)`, it's safe to overlap: if y
 
 ```ts
 import express from "express";
-import { verifyWebhook } from "@purros/sdk";
 import { createPosStaff } from "./pos-client";
-import { config } from "./purros";
+import { config, verifyWebhook } from "./purros";
 
 export const app = express();
 
@@ -185,7 +236,16 @@ Run it next to PurrOS by adding it to your Compose file:
 
 ## 8. Check it in PurrOS
 
-**Settings → Integrations → POS bridge** shows the heartbeat, batches received, rejected records, unmapped items, your log messages and webhook deliveries.
+With `integrations.manage` (and `webhooks.manage` for deliveries):
+
+- `GET /api/v1/integrations/{id}` shows its health message, last heartbeat, keys and webhook endpoint (or `purros integrations list`).
+- `GET /api/v1/integrations/{id}/batches?rejectedOnly=true` shows batches with rejected records, and `GET /api/v1/integrations/{id}/logs` your log messages.
+- `GET /api/v1/webhook-endpoints/{endpointId}/deliveries` shows every webhook sent to it, and `POST /api/v1/webhook-endpoints/{endpointId}:ping` sends a test event.
+- `GET /api/v1/sales/transactions?source=pos:store-101` shows what arrived, and `GET /api/v1/sales/unmapped-items` lists POS items that still need linking.
+
+When you release a new version, update its manifest with `PUT /api/v1/integrations/{id}/manifest` (or `purros integrations update pos-bridge`). To replace its key without downtime, use `POST /api/v1/integrations/{id}:rotate-key`.
+
+*(A **Settings → Integrations** page in the web app is planned; it uses the same API.)*
 
 ## Checklist before going live
 

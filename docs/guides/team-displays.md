@@ -2,6 +2,8 @@
 
 Feature key: `displays`.
 
+> **Status:** The API stores recognitions and display metrics. Display screens, pairing codes, display profiles, leaderboards and celebrations are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Turn any screen in the workplace into a live team board that shows goals and progress, recognizes good work and reminds people about shifts.
 
 ## What you need

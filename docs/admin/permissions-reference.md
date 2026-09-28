@@ -15,10 +15,10 @@ The permission each API endpoint needs is listed in the [endpoint index](../api/
 | `users.read` | View accounts, their roles and assignments |
 | `users.manage` | Invite, deactivate and change the role or assignments of accounts (within the escalation rules) |
 | `roles.manage` | Create, edit and delete roles. **Only an Owner can grant this.** |
-| `organization.manage` | Edit the hierarchy, locations, departments and terminology |
+| `organization.manage` | Create, edit and archive org units, locations and departments. With a reach narrower than Everyone, only the profiles of locations within reach. |
 | `settings.manage` | Change company settings (other than features, which are Owner-only) |
-| `integrations.manage` | Register, pause, rotate and remove integrations |
-| `webhooks.manage` | Manage webhook endpoints and view deliveries |
+| `integrations.manage` | Register, update, pause, rotate keys of and remove integrations; see their config, logs and ingestion batches. Needs reach Everyone. Approving `people:sensitive` is Owner-only. |
+| `webhooks.manage` | Add, change, disable and delete webhook endpoints, rotate their secrets, send test events, view deliveries and replay them. Needs reach Everyone. |
 | `api_keys.personal` | Create personal API keys, which act with the user's own role and reach |
 | `audit.read` | View the audit log |
 | `attachments.read` | View uploaded files (proof, photos, receipts…) for employees and locations within reach |

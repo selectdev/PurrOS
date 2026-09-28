@@ -99,8 +99,7 @@ func (c *Ctx) Decode(v any) error {
 		return BadRequest("A JSON request body is required.")
 	}
 	if err := json.Unmarshal(c.body, v); err != nil {
-		var ute *json.UnmarshalTypeError
-		if errors.As(err, &ute) {
+		if ute, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
 			return Validation(FieldError{Path: ute.Field, Message: "Must be of type " + ute.Type.String()})
 		}
 		return BadRequest("Malformed JSON: " + err.Error())

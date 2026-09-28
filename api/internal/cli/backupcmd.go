@@ -24,13 +24,10 @@ import (
 
 // backupDir is where backups go when no --dir is given.
 func backupDir(cfg config.Config, flag string) string {
-	switch {
-	case flag != "":
+	if flag != "" {
 		return flag
-	case cfg.Backup.Dir != "":
-		return cfg.Backup.Dir
 	}
-	return "backups"
+	return cfg.BackupDir()
 }
 
 // passphrase finds the passphrase for a backup: --passphrase-file, then
@@ -194,7 +191,7 @@ uploaded to the backup bucket.`,
 				if o.Dir == "" && o.Path == "" {
 					o.Dir = cfg.Backup.Dir
 					if o.Dir == "" && o.Remote == nil {
-						o.Dir = "backups"
+						o.Dir = cfg.BackupDir()
 					}
 				}
 				if (cfg.IncludeFiles() || withFiles) && !noFiles {
@@ -245,7 +242,7 @@ uploaded to the backup bucket.`,
 	}
 	cf := create.Flags()
 	cf.StringVar(&out, "out", "", "write to this file")
-	cf.StringVar(&dir, "dir", "", "directory for the backup (default $PURROS_BACKUP_DIR, or ./backups without S3)")
+	cf.StringVar(&dir, "dir", "", "directory for the backup (default $PURROS_BACKUP_DIR, or $PURROS_STATE_DIR/backups without S3)")
 	cf.BoolVar(&encrypt, "encrypt", false, "encrypt with a passphrase (prompted, or PURROS_BACKUP_PASSPHRASE / --passphrase-file)")
 	cf.BoolVar(&noEncrypt, "no-encrypt", false, "don't encrypt, even when PURROS_BACKUP_PASSPHRASE is set")
 	cf.StringVar(&passFile, "passphrase-file", "", "file holding the passphrase")
@@ -325,7 +322,7 @@ uploaded to the backup bucket.`,
 			})
 		},
 	}
-	list.Flags().StringVar(&listDir, "dir", "", "backup directory (default $PURROS_BACKUP_DIR or ./backups)")
+	list.Flags().StringVar(&listDir, "dir", "", "backup directory (default $PURROS_BACKUP_DIR or $PURROS_STATE_DIR/backups)")
 	list.Flags().BoolVar(&listRemote, "remote", false, "list the backups in the S3 backup bucket")
 	cmd.AddCommand(list)
 
@@ -449,7 +446,7 @@ already has data, --replace is required and a safety backup of the current
 data is taken first (unless --no-safety-backup). Stop PurrOS (the API and
 workers) before restoring.`,
 		Example: `  docker compose stop api
-  docker compose run --rm api backup restore /backups/purros-20260927-020000-scheduled.purros-backup --replace
+  docker compose run --rm api backup restore /var/lib/purros/backups/purros-20260927-020000-scheduled.purros-backup --replace
   docker compose run --rm api backup restore s3:purros-20260927-020000-scheduled.purros-backup --replace
   docker compose start api`,
 		Args: cobra.ExactArgs(1),
@@ -547,7 +544,7 @@ workers) before restoring.`,
 	rf.StringVar(&restorePass, "passphrase-file", "", "file holding the passphrase")
 	rf.BoolVar(&replace, "replace", false, "overwrite a database that already has data")
 	rf.BoolVar(&noSafety, "no-safety-backup", false, "don't back up the current data first")
-	rf.StringVar(&safetyDir, "safety-dir", "", "where to put the safety backup (default $PURROS_BACKUP_DIR or ./backups)")
+	rf.StringVar(&safetyDir, "safety-dir", "", "where to put the safety backup (default $PURROS_BACKUP_DIR or $PURROS_STATE_DIR/backups)")
 	cmd.AddCommand(restore)
 
 	var pruneDir, olderThan string

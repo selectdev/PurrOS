@@ -2,6 +2,8 @@
 
 Feature key: `communication`.
 
+> **Status:** The API handles announcements with acknowledgments and the company calendar. Messaging, direct messages, the shared files library and web push notifications are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Reach the right people, at the right locations, without sharing personal phone numbers or relying on outside group chats.
 
 ## Announcements
@@ -48,7 +50,7 @@ People choose how to be notified about each kind of event, within limits set by 
 | In-app | Always on |
 | Email | Needs SMTP ([Configuration](../getting-started/configuration.md#email)) |
 | Web push | Works when PurrOS is installed on the phone's home screen (PWA) |
-| SMS, chat apps and others | Through an integration that handles `notification.requested` webhooks. See [recipes](../integrations/recipes.md#notifications-sms-chat) |
+| SMS, chat apps and others | Through an integration that handles `notification.requested` *(planned)* webhooks. See [recipes](../integrations/recipes.md#notifications-sms-chat) |
 
 Quiet hours stop non-urgent notifications outside a person's shifts.
 
@@ -59,6 +61,6 @@ Quiet hours stop non-urgent notifications outside a person's shifts.
 | `GET/POST /api/v1/announcements` | `communication:read` / `communication:write` |
 | `GET /api/v1/calendar-events`, `POST /api/v1/calendar-events` | `communication:read` / `communication:write` |
 
-Events: `announcement.published`, `notification.requested` (for delivery integrations; needs the `notifications:deliver` scope).
+Events: `announcement.published`, `notification.requested` *(planned)* (for delivery integrations; needs the `notifications:deliver` scope).
 
 Messages themselves aren't available through the API, to protect staff privacy.

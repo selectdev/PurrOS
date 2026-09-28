@@ -137,10 +137,9 @@ func (w *Worker) Dispatch(ctx context.Context) (int, error) {
 			id     string
 			events []string
 		}
-		erows, err := tx.Query(ctx, `
-			SELECT e.id, e.events FROM webhook_endpoints e
-			LEFT JOIN integrations i ON i.id = e.integration_id
-			WHERE e.status = 'active' AND (i.id IS NULL OR i.status = 'active')`)
+		// Disabled endpoints and paused integrations get deliveries too: they
+		// wait (see Deliver) and are sent once the endpoint is active again.
+		erows, err := tx.Query(ctx, `SELECT e.id, e.events FROM webhook_endpoints e`)
 		if err != nil {
 			return err
 		}
@@ -197,12 +196,15 @@ func (w *Worker) Deliver(ctx context.Context) (int, error) {
 	rows, err := w.Pool.Query(ctx, `
 		WITH due AS (
 			SELECT d.id FROM webhook_deliveries d
+			JOIN webhook_endpoints we ON we.id = d.endpoint_id AND we.status = 'active'
+			LEFT JOIN integrations i ON i.id = we.integration_id
 			WHERE d.status = 'pending' AND d.next_attempt_at <= now()
+			  AND (i.id IS NULL OR i.status = 'active')
 			  AND NOT EXISTS (
 				SELECT 1 FROM webhook_deliveries p
 				WHERE p.endpoint_id = d.endpoint_id AND p.ordering_key = d.ordering_key
 				  AND p.status = 'pending' AND p.event_id < d.event_id)
-			ORDER BY d.next_attempt_at LIMIT 50 FOR UPDATE SKIP LOCKED
+			ORDER BY d.next_attempt_at LIMIT 50 FOR UPDATE OF d SKIP LOCKED
 		)
 		UPDATE webhook_deliveries d SET next_attempt_at = now() + interval '2 minutes'
 		FROM due, webhook_endpoints e, outbox_events ev
@@ -318,7 +320,7 @@ func (w *Worker) record(ctx context.Context, d delivery, code int, deliveryErr e
 			return err
 		}
 		if failures >= DisableAfter {
-			if _, err := tx.Exec(ctx, `UPDATE webhook_endpoints SET status='disabled' WHERE id=$1 AND status='active'`, d.EndpointID); err != nil {
+			if _, err := tx.Exec(ctx, `UPDATE webhook_endpoints SET status='disabled', disabled_at=now() WHERE id=$1 AND status='active'`, d.EndpointID); err != nil {
 				return err
 			}
 			w.Log.Warn("webhook endpoint disabled after repeated failures", "endpoint", d.EndpointID)

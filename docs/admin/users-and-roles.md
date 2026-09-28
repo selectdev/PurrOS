@@ -8,21 +8,21 @@ Everyone who signs in has an **account**: owners, HR, managers, supervisors and 
 - **assignments**: the locations, org units and departments their role applies to, where the role uses those reaches
 - optionally a link to an **employee record**, which gives them their [Employee Area](../guides/employee-area.md)
 
-Accounts are managed under **Settings → Users** (permission `users.manage`).
+Accounts are managed with the API (`/api/v1/users`, permission `users.manage`) or the `purros users` CLI, and under **Settings → Users** once the web app ships.
 
 | Action | Notes |
 |---|---|
-| Invite | Sends an email with a sign-in link. You pick the role and assignments. |
-| Link to employee | Connects an account to an employee record. Invites sent from an employee's profile are linked automatically. |
-| Change role or assignments | Takes effect on the user's next request. |
-| Deactivate | Signs the user out everywhere and blocks sign-in. History is kept. |
-| Reset sign-in | Sends a new sign-in link and removes their passkeys, 2FA, or both. |
+| Invite | `POST /users` or `purros users invite`. Sends an email with a sign-in link (or prints it, without SMTP). You pick the role and assignments. |
+| Link to employee | Set `employeeId` when inviting or with `PATCH /users/{id}`. |
+| Change role or assignments | `PATCH /users/{id}` or `purros users set-role`. Takes effect on the user's next request. |
+| Deactivate | `POST /users/{id}:deactivate` or `purros users deactivate`. Signs the user out everywhere and blocks sign-in. History is kept. |
+| Reset sign-in | `POST /users/{id}:reset-sign-in` or `purros users sign-in-link [--reset-mfa]`. Sends a new sign-in link and can remove their 2FA. |
 
-With SSO provisioning (SCIM), accounts can be created and deactivated automatically from your identity provider. See [Authentication](authentication.md#automatic-provisioning-scim).
+With SSO provisioning (SCIM, planned), accounts will be created and deactivated automatically from your identity provider. See [Authentication](authentication.md#automatic-provisioning-scim).
 
 ## Roles
 
-Every account has exactly **one role**. Your organization creates its own roles under **Settings → Roles**. PurrOS doesn't fix any job titles.
+Every account has exactly **one role**. Your organization creates its own roles (`POST /api/v1/roles`, and **Settings → Roles** once the web app ships). PurrOS doesn't fix any job titles.
 
 A role is:
 

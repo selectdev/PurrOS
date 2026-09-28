@@ -26,14 +26,16 @@ This document covers how PurrOS is built: architecture, data model, API conventi
 | API docs | OpenAPI 3.1 generated from route declarations and Go types | Served at `/api/v1/openapi.json` |
 | People sign-in | Implemented in the API: server-side sessions, Argon2id, TOTP (passkeys, OIDC and SAML planned) | The web app never handles credentials itself |
 | Web app | **Next.js**, TypeScript, Tailwind CSS (`web/`, planned) | A client of the public API; talks to it with the TypeScript SDK |
-| SDK | `@purros/sdk` (TypeScript, generated from OpenAPI) | Used by the web app and integration authors |
-| Testing | Go `testing` against real PostgreSQL; Playwright for the web app | See §11 |
+| File storage | Local disk or any S3-compatible bucket (`minio-go`) | See §12 |
+| Email | SMTP, queued in PostgreSQL | See §12 |
+| SDK | `@purros/sdk` (TypeScript, generated from OpenAPI; planned) | For the web app and integration authors |
+| Testing | Go `testing` against real PostgreSQL; Playwright for the web app (planned) | See §11 |
 
 ## 3. Architecture
 
 ```
                                    ┌──────────────────────────────────────┐
-  Browser ──► Web app (Next.js) ──►│                                      │◄── Integrations (POS, online
+  Browser ──► Web app (planned) ───►│                                      │◄── Integrations (POS, online
   (web UI, Employee Area,  REST    │   purros serve  (Go, single binary)  │    stores, timeclocks, HR…)
    kiosk, displays)                │                                      │    REST + API keys
                                    │   router → auth → feature → scope    │
@@ -42,8 +44,9 @@ This document covers how PurrOS is built: architecture, data model, API conventi
                                    │   modules: platform, organization,   │
                                    │   people, time, sales, inventory, …  │
                                    │                                      │
-                                   │   worker (in-process or `purros      │──► signed webhooks
-                                   │   worker`): outbox → deliveries      │
+                                   │   worker (in-process or `purros      │──► signed webhooks, email
+                                   │   worker`): outbox, email, alerts,   │
+                                   │   nightly backups                    │
                                    └──────────────┬───────────────────────┘
                                                   │ pgx
                                           ┌───────▼────────┐    ┌───────────────────┐
@@ -70,14 +73,14 @@ Every module except the platform core can be turned off by the Owner, and a disa
 - **Feature registry.** The registry (`api/internal/features`) lists every feature: `key` (e.g. `cash`, `scheduling`, `time.kiosk`, `displays.gamification`), its parent (sub-features use dotted keys such as `time.kiosk`) and `dependsOn`. Every route, permission, scope and webhook event declares the feature it belongs to.
 - **Storage.** A `FeatureSetting { key, enabled, changedBy, changedAt }` table. Only the switch the Owner flips is stored; dependents are off because `IsEnabled` checks every requirement, and they return to their previous state when it is switched back on. Resolved state is cached in each process and invalidated through Postgres `LISTEN/NOTIFY`, so a change takes effect immediately in every API and worker instance.
 - **Guards at every entry point.**
-  - Web UI: navigation, dashboards, settings and the Employee Area are built from `GET /api/v1/features`, so disabled features never render.
+  - Web UI (planned): navigation, dashboards, settings and the Employee Area are built from `GET /api/v1/features`, so disabled features never render.
   - API: every route declares its feature; the router answers `404` with `code: "feature_disabled"` before the handler runs. Handlers call `c.RequireFeature(key)` for sub-features. The OpenAPI document is generated from enabled features only.
   - Permissions: the catalog served to the role editor and `GET /api/v1/permissions` excludes disabled features. Existing grants stay stored but are ignored while the feature is off.
   - Events and jobs: the outbox dispatcher drops event types of disabled features, subscriptions to them are rejected, and the worker skips their scheduled jobs.
   - Integrations: registration rejects scopes of disabled features, and existing keys lose those scopes while the feature is off.
 - **Dependencies.** `dependsOn` forms a graph that is checked at enable and disable time. Enabling a feature returns the missing dependencies to enable together. Disabling returns the dependent features, which are disabled in the same transaction after confirmation. Cross-module reads, such as reports reading cash data, check `isEnabled()` and degrade gracefully (e.g. the KPI is omitted rather than shown as zero).
-- **Data retention.** Disabling never deletes rows. Purging a feature's data is a separate Owner-only action (`purros features purge <key>` or the UI) that requires export confirmation, runs as a background job, and is audited.
-- **Audit.** Every enable, disable and purge is written to the audit log.
+- **Data retention.** Disabling never deletes rows. Purging a feature's data will be a separate Owner-only action (`purros features purge <key>`, planned) that requires export confirmation, runs as a background job, and is audited.
+- **Audit.** Every enable and disable is written to the audit log.
 
 ### Repository layout
 
@@ -85,58 +88,74 @@ Every module except the platform core can be turned off by the Owner, and a disa
 api/                         Go API server, worker and CLI (the `purros` binary)
   cmd/purros/                main package
   internal/
-    config/                  environment configuration
-    db/                      pgx pool, transactions, embedded SQL migrations
-    httpx/                   router, auth, errors, validation, pagination, idempotency, rate limits, OpenAPI
+    config/                  environment configuration, config/state directories
+    db/                      pgx pool, transactions, advisory locks, embedded SQL migrations
+    httpx/                   router, auth, reach checks, errors, validation, pagination, idempotency,
+                             rate limits, batch helpers, OpenAPI generation
     features/                feature registry and switches
-    catalog/                 permissions, scopes, webhook event catalog
+    catalog/                 permissions, scopes, webhook events, route → permission and reach tables
     events/                  audit log and transactional outbox
     webhooks/                outbox dispatcher and signed delivery worker
-    modules/                 one package per feature: platform, organization, people, timeclock, sales, inventory, …
-    cli/                     `purros` subcommands (serve, worker, migrate, setup, integrations, features, doctor)
+    crud/                    generic list/get/create/update/archive resources
+    integration/             integration manifests, registration, keys, config, webhook endpoints and deliveries
+                             (shared by the admin API and the CLI)
+    ingest/                  batch ingestion (per-record savepoints and results)
+    refs/                    item, location and employee references by ID, SKU or external ID
+    auth/, secure/           password hashing and TOTP; encryption and signing with PURROS_SECRET
+    mail/                    SMTP sender and email queue
+    storage/                 local and S3 file storage
+    backup/                  backups: snapshot, encryption, files, S3 upload, restore
+    pdf/                     invoice PDFs
+    ids/                     prefixed, sortable IDs
+    modules/                 one package per area: platform, account, organization, people, timeclock,
+                             scheduling, inventory, purchasing, sales, cash, operations, equipment,
+                             communication, insights, employeearea, attachments, integrations (admin API)
+    cli/                     `purros` subcommands
     server/                  wiring, health checks, API integration tests
     testutil/                test database and API harness
   Dockerfile
-web/                         Next.js web app (planned): dashboard, Employee Area, kiosk, team displays
-packages/
-  sdk/                       @purros/sdk — typed API client, webhook verification (planned)
-  integration-template/      starter repo for building an integration (planned)
-examples/
-  integrations/              small reference integrations (planned)
+config/                      deployment configuration: purros.env, postgres.env (git-ignored; *.example committed)
+state/                       runtime state for local runs: uploaded files, backups (git-ignored)
 docs/                        documentation
+examples/dev-manifest.json   integration manifest for local development
 docker-compose.yml           api + PostgreSQL (+ optional Redis)
+docker-compose.dev.yml       PostgreSQL for local development
+web/                         Next.js web app (planned): dashboard, Employee Area, kiosk, team displays
+packages/sdk/                @purros/sdk: typed API client, webhook verification (planned)
+packages/integration-template/  starter repo for building an integration (planned)
 ```
 
 ## 4. Data model
 
 ### Conventions
 
-- **IDs:** prefixed, sortable, generated in the app layer (e.g. `emp_01J8Z…`, `itm_…`, `po_…`), stored as `String @id`. Prefixes make IDs self-describing in logs and API payloads.
-- **`externalId`:** optional on all syncable entities, unique per entity type (`@@unique([externalId])`), so integrators can upsert by their own IDs.
-- **Timestamps:** `createdAt`, `updatedAt` on every table, stored as `timestamptz` in UTC. Business dates (e.g. pay period) use `date`.
-- **Soft delete:** `archivedAt` on master data (employees, items, suppliers, customers). Transactional records are never deleted; they are voided or reversed.
-- **Money:** `Decimal(19,4)` plus an ISO-4217 `currency` column. Never `Float`.
-- **Quantities:** `Decimal(18,6)` in the item's base unit of measure.
-- **Optimistic concurrency:** a `version Int` column on mutable aggregates; updates must match the version.
+- **IDs:** prefixed ULIDs generated in the app layer (e.g. `emp_01J8Z…`, `itm_…`, `po_…`), stored as `text PRIMARY KEY`. Prefixes make IDs self-describing in logs and API payloads.
+- **`externalId`:** optional on all syncable entities, with a unique index per entity type (per `source` for ingested records), so integrators can upsert by their own IDs.
+- **Timestamps:** `created_at`, `updated_at` as `timestamptz` in UTC (`createdAt`, `updatedAt` in JSON). Business dates (e.g. pay period) use `date`.
+- **Soft delete:** `archived_at` on master data (employees, items, suppliers, customers). Transactional records are never deleted; they are voided or reversed.
+- **Money:** `numeric(19,4)` plus an ISO-4217 `currency` column. Never floating point.
+- **Quantities:** `numeric(18,6)` in the item's unit of measure.
+- **Optimistic concurrency:** a `version integer` column on mutable aggregates; updates with `If-Match` must match it.
 
 ### Core entities (simplified)
 
-```
-People         Employee, Department, Position, Location, EmployeeDocument, CustomFieldDef
-Time           Punch, PunchCorrectionRequest, Shift, Timesheet, TimesheetEntry, PayPeriod, OvertimeRule, TimeOffRequest, TimeOffBalance
-Pay            PayRate (effective-dated history), Payslip (pushed in by a payroll integration)
-Inventory      Item, ItemVariant, UnitOfMeasure, Warehouse, BinLocation, StockMovement, StockLevel, StockCount, WasteEntry, Transfer, UsageRecipe, Batch
-Purchasing     Supplier, PurchaseOrder, PurchaseOrderLine, GoodsReceipt, GoodsReceiptLine
-Sales          SalesSummary, SalesTransaction, Customer, PriceList, SalesOrder, SalesOrderLine, Shipment, Invoice
-Organization   OrgUnit (hierarchy node: region/district/…), Location, LocationSetting (inherited)
-Scheduling     DemandForecast, StaffingRule, Schedule, ScheduledShift, Availability, ShiftSwapRequest, LaborRuleSet, Skill, EmployeeSkill
-Cash           Drawer, CashCount, SafeDrop, SafeCount, BankDeposit, PaidOut, TenderReconciliation
-Operations     FormTemplate, FormSchedule, FormSubmission, CorrectiveAction, Audit, SensorReading
-Equipment      Asset, MaintenancePlan, WorkOrder
-Communication  Announcement, Acknowledgment, Conversation, Message, CalendarEvent, FileLink, Display, DisplayProfile
-Insights       ReportDefinition, ReportSchedule, AlertRule, Recommendation
-Platform       User, Role, RolePermission, UserLocationAssignment, UserDepartmentAssignment, ApiKey, Integration, IntegrationConfig, WebhookEndpoint, WebhookDelivery, OutboxEvent, AuditLog, IdempotencyRecord
-```
+What exists today (tables in `api/internal/db/migrations/`), and what the target model adds:
+
+| Area | Built | Planned |
+|---|---|---|
+| Platform | Company, FeatureSetting, Role, RolePermission, User (+ location and department assignments), Session, AuthToken, RecoveryCode, ApiKey, Integration, IntegrationLog, WebhookEndpoint, WebhookDelivery, OutboxEvent, AuditLog, IdempotencyRecord, IngestBatch, Email, Attachment, BackupRun | Passkey, SSO connection |
+| Organization | OrgUnit (region/district/… hierarchy), Location, Department | LocationSetting (inherited), opening hours |
+| People | Employee (free-form custom fields), EmployeeDocument, Skill, EmployeeSkill, PayRate (effective-dated), Payslip | CustomFieldDef, onboarding |
+| Time | Punch, PunchCorrection, LaborRuleSet, Timesheet, PayPeriod, TimeOffType, TimeOffRequest, TimeOffLedger | Kiosk devices, break attestations |
+| Scheduling | DemandDriver, ForecastAdjustment, StaffingRule, Shift, Availability, ShiftSwapRequest | Schedule builder runs |
+| Inventory | Item, ItemMapping, StockMovement, StockLevel, UsageRecipe, StockCount (+ lines), Transfer (+ lines) | ItemVariant, UnitOfMeasure conversions, BinLocation, Batch |
+| Purchasing | Supplier, SupplierCatalog, PurchaseOrder (+ lines), GoodsReceipt, SupplierInvoice | |
+| Sales | SalesTransaction (+ lines), SalesSummary, Customer, SalesOrder (+ lines), Invoice | PriceList, Quote, Shipment |
+| Cash | CashTender, CashSettlement, BankTransaction, CashCount, BankDeposit, BusinessDay | PaidOut, SafeCount |
+| Operations | Form, FormSubmission, CorrectiveAction, Sensor, SensorReading | FormSchedule |
+| Equipment | Asset, AssetMeterReading, WorkOrder | |
+| Communication | Announcement, AnnouncementAck, CalendarEvent, Recognition, DisplayMetric | Conversation, Message, FileLink, Display, DisplayProfile |
+| Insights | AlertRule (KPIs and reports are computed) | ReportDefinition, ReportSchedule, stored Recommendation |
 
 ### Stock ledger
 
@@ -145,7 +164,7 @@ Inventory correctness depends on this design:
 - `StockMovement` is **append-only**: `(id, itemId, locationId, quantity (+/-), type, sourceType, sourceId, unitCost, occurredAt, createdBy)`.
 - `StockLevel` is a **projection** `(itemId, locationId) → onHand, reserved`, updated **in the same transaction** as the movement insert, with `SELECT … FOR UPDATE` on the level row.
 - Corrections are made with new movements (type `adjustment` or `reversal`), never by editing old ones.
-- A nightly job verifies `StockLevel.onHand == SUM(StockMovement.quantity)` and alerts on drift.
+- `purros doctor` verifies `StockLevel.onHand == SUM(StockMovement.quantity)` and reports any drift. *(A nightly check with an alert is planned.)*
 
 ### Time data flow
 
@@ -160,13 +179,13 @@ Raw punches are never modified. Manual corrections create entries flagged `sourc
 - Field names are camelCase. Timestamps use ISO-8601 UTC and decimals are sent as **strings** (`"12.5000"`).
 - Auth: `Authorization: Bearer <api key>`. Keys are prefixed (`pk_live_…`). Only a SHA-256 hash is stored, and the key is shown once.
 - **Scopes** per key, e.g. `people:read`, `people:write`, `time:write`, `inventory:write`.
-- The OpenAPI 3.1 spec is generated from the Zod schemas and served at `/api/v1/openapi.json`.
+- The OpenAPI 3.1 spec is generated from the route declarations and Go types and served at `/api/v1/openapi.json`.
 
 ### Standard operations
 
 | Operation | Pattern |
 |---|---|
-| List | `GET /employees?limit=50&cursor=…&filter[status]=active&sort=-updatedAt` |
+| List | `GET /employees?limit=50&cursor=…&status=active&locationId=…` (filters are plain parameters; order is by ID, oldest first) |
 | Get | `GET /employees/{id}` or `GET /employees/external/{externalId}` |
 | Create | `POST /employees` |
 | Update | `PATCH /employees/{id}` (partial, `If-Match: <version>` optional) |
@@ -210,7 +229,7 @@ Uses the RFC 9457 Problem Details format:
 }
 ```
 
-Stable machine-readable `code` values include `validation_error`, `not_found`, `conflict`, `version_mismatch`, `insufficient_stock`, `period_locked`, `rate_limited`, `unauthorized`, `forbidden`.
+The `type` is `https://purros.dev/errors/<code>`. Stable machine-readable `code` values include `validation_error`, `not_found`, `conflict`, `version_mismatch`, `insufficient_stock`, `period_locked`, `rate_limited`, `unauthorized`, `forbidden`.
 
 ### Idempotency
 
@@ -218,7 +237,7 @@ All `POST` endpoints accept an `Idempotency-Key` header. The key and a response 
 
 ### Rate limiting
 
-A Redis token bucket per API key, 600 requests/min by default and configurable. Responses include `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`. Over the limit, the API returns `429` with `Retry-After`.
+A fixed window per API key or session, 600 requests/min by default (3,000 for ingestion endpoints) and configurable. Counters are in memory, or in Redis when `REDIS_URL` is set so several API containers share them. Responses include `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`. Over the limit, the API returns `429` with `Retry-After`.
 
 ### Webhooks
 
@@ -235,7 +254,8 @@ A Redis token bucket per API key, 600 requests/min by default and configurable. 
 ```
 
 - Signed with `PurrOS-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, t + "." + body)>`. Receivers should reject timestamps older than 5 minutes.
-- Delivery is at-least-once with exponential backoff (up to 3 days, about 15 attempts). An endpoint is auto-disabled after sustained failures and the admin is notified. Delivery logs can be viewed and deliveries replayed in the UI.
+- Delivery is at-least-once with exponential backoff (up to 3 days, about 15 attempts). An endpoint is disabled after 25 consecutive failures; while disabled (or while its integration is paused) its deliveries wait and are sent when it's re-enabled. *(Notifying the admin is planned.)*
+- Endpoints are either an integration's (from its manifest) or standalone (`POST /webhook-endpoints`, `webhooks.manage`). Every delivery is kept with its attempts and last error; admins can view the exact body sent, send a `webhook.ping` test event, and replay single deliveries or everything that failed.
 
 ### Versioning
 
@@ -246,11 +266,11 @@ A Redis token bucket per API key, 600 requests/min by default and configurable. 
 ## 6. Events, outbox & background jobs
 
 1. A handler writes its domain change, an audit entry **and** an `outbox_events` row in the same transaction. Each event carries an **ordering key** (`entityType:entityID`).
-2. The worker's dispatcher claims undispatched events (`FOR UPDATE SKIP LOCKED`), drops events of disabled features, and creates one `webhook_deliveries` row per subscribed endpoint.
-3. Deliverers claim due deliveries with a short lease. Only the earliest pending delivery per *(endpoint, ordering key)* is eligible, so events about the same record arrive in order while different records are delivered in parallel.
+2. The worker's dispatcher claims undispatched events (`FOR UPDATE SKIP LOCKED`), drops events of disabled features, and creates one `webhook_deliveries` row per subscribed endpoint, including disabled endpoints and paused integrations, whose deliveries simply wait.
+3. Deliverers claim due deliveries of active endpoints with a short lease. Only the earliest pending delivery per *(endpoint, ordering key)* is eligible, so events about the same record arrive in order while different records are delivered in parallel.
 4. Failed deliveries back off (30 s → 12 h, about 15 attempts over ~3 days); an endpoint with 25 consecutive failures is disabled.
 
-All queues live in PostgreSQL, so nothing is lost if a worker restarts and no message broker is needed. Future job types (email, imports, exports, backups, scheduled jobs such as ledger verification) use the same pattern.
+All queues live in PostgreSQL, so nothing is lost if a worker restarts and no message broker is needed. Email, KPI alert evaluation and nightly backups already run in the worker the same way; future job types (imports, exports, scheduled reports, ledger verification) will too.
 
 ## 7. Integrations
 
@@ -264,7 +284,7 @@ PurrOS does not include integrations for specific vendors (HR platforms, timeclo
 
 ### Registration and the manifest
 
-An admin registers an integration under **Settings → Integrations**, either by filling in a form or by uploading a manifest:
+An admin registers an integration from a manifest, with `POST /api/v1/integrations` (`integrations.manage`) or `purros integrations register --manifest …`. Both use `api/internal/integration`, so they validate and record the same way; a **Settings → Integrations** page in the web app will use the same API:
 
 ```json
 {
@@ -285,14 +305,23 @@ An admin registers an integration under **Settings → Integrations**, either by
 }
 ```
 
-When the integration is registered, PurrOS:
+Validation checks the name, that every scope exists and belongs to an enabled feature, that `people:sensitive` was approved by an Owner, that every webhook event exists, is enabled and is **covered by the scopes** (an event needs a scope of its feature, so an integration can't receive employee records through webhooks without a `people:` scope), and that config fields have known types (`string`, `number`, `boolean`, `secret`, `json`, `location`, `select` with `options`).
+
+When the integration is registered, PurrOS, in one transaction:
 
 1. Creates an `Integration` record and an **API key restricted to the declared scopes**. The key is shown once.
-2. Creates the webhook subscription with its own signing secret.
-3. Stores the `config` values the admin enters, encrypting fields of type `secret`. The integration reads them with `GET /api/v1/integrations/self/config`.
+2. Creates the webhook endpoint with its own signing secret, shown once.
+3. Stores the `config` values the admin enters, checked and converted to their declared types, encrypted as a whole with a `PURROS_SECRET`-derived key. Admins see `secret` fields masked; the integration reads the values with `GET /api/v1/integrations/self/config`.
 4. Records the integration as the actor on every change it makes, so the audit log shows "Acme Timeclock Bridge" rather than an anonymous key.
 
-Admins can pause an integration (its key and webhooks stop working), rotate its credentials, see its recent API calls and webhook deliveries, and remove it.
+After registration, admins manage it through the same API (or CLI):
+
+- **Update the manifest** for a new version (`PUT /integrations/{id}/manifest`). The name is fixed; scopes, config fields and the webhook endpoint follow the new manifest, which is validated again. Config values of dropped fields are removed.
+- **Change config** (`PATCH /integrations/{id}/config`); required fields must stay set.
+- **Pause and resume.** While paused its keys return `401`, and events for its endpoint queue but aren't sent until it's resumed.
+- **Rotate its key** with a grace period (`POST /integrations/{id}:rotate-key`): older keys get an `expires_at` instead of being revoked, so a deployment can switch keys without downtime.
+- **See its activity**: log messages it sent, and every ingestion batch with created, updated and rejected counts.
+- **Remove it**: keys, config, logs and endpoint are deleted; the audit log keeps its name.
 
 ### Integration data mapping
 
@@ -304,7 +333,9 @@ Integrations keep IDs in sync with **`externalId`** (see §4) and the `PUT …/e
 
 Only the owning integration can write its namespace. Any caller with read scope on the record can read it.
 
-### SDK and template
+### SDK and template (planned)
+
+None of these exist yet; today integrations use the OpenAPI spec with any HTTP client or client generator.
 
 - **`@purros/sdk`** (TypeScript, generated from the OpenAPI spec): typed client, automatic pagination, idempotency keys, retries on `429`/`5xx`, `verifyWebhook(rawBody, signatureHeader, secret)`, and typed event payloads.
 - **`packages/integration-template`**: a minimal Node service with a webhook endpoint, a scheduled sync loop, a config loader and a Dockerfile.
@@ -318,8 +349,10 @@ Integrations in other languages use the OpenAPI spec with any client generator.
 |---|---|
 | `GET /api/v1/integrations/self` | The calling integration's registration, scopes and status |
 | `GET /api/v1/integrations/self/config` | Admin-entered config values (secrets decrypted, over TLS only) |
-| `POST /api/v1/integrations/self/health` | Heartbeat and status message, shown in the admin UI |
-| `POST /api/v1/integrations/self/logs` | Optional sync summaries (e.g. "imported 42 punches") shown in the admin UI |
+| `POST /api/v1/integrations/self/health` | Heartbeat and status (`ok`, `warning`, `error`) with a message, shown to admins |
+| `POST /api/v1/integrations/self/logs` | Optional sync summaries (e.g. "imported 42 punches"), shown to admins at `GET /integrations/{id}/logs` |
+
+The admin side (`/integrations`, `/webhook-endpoints`, `/webhook-deliveries`) is people-only: integration keys get `403`, so an integration can't widen its own scopes or read another's config.
 
 ### Compatibility
 
@@ -327,15 +360,15 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 
 ## 8. Security
 
-- **AuthN (people):** a single account system for all users, admins and employees alike. Sign-in methods: email + password (Argon2id), magic link (single use, 15 min), passkeys (WebAuthn), and SSO via OIDC or SAML 2.0 with optional SCIM provisioning. Admins enable methods per install and can require SSO.
-- **2FA:** optional for every user (TOTP or passkey, plus recovery codes). It is off by default, and an Owner can make it mandatory per role or company-wide.
+- **AuthN (people):** a single account system for all users, admins and employees alike. Sign-in methods: email + password (Argon2id) and magic links (single use, 15 min). Passkeys (WebAuthn) and SSO via OIDC or SAML 2.0 with optional SCIM provisioning are planned. Admins enable methods per install.
+- **2FA:** optional for every user (TOTP plus recovery codes; passkeys planned). It is off by default, and an Owner can make it mandatory per role or company-wide.
 - **Sessions:** stored server-side in Postgres (only a hash of the token) and linked by a secure `httpOnly`, `SameSite=Lax` cookie, with a 12-hour idle timeout (15 minutes on shared devices) and a 30-day absolute timeout. A new token is issued when the second factor completes. Sessions are revoked on password change, reset and deactivation, and users can see and revoke their own sessions. Sign-in is rate-limited per IP and account, with a 15-minute lockout after 10 failures.
-- **AuthN (software):** API keys for `/api/v1`, either integration keys (scoped at registration) or personal keys (requires `api_keys.personal`; they act with the creating user's role and reach, never more). Keys can be given an expiry and can be rotated, and their last-used time and IP are shown.
+- **AuthN (software):** API keys for `/api/v1`, either integration keys (scoped at registration) or personal keys (requires `api_keys.personal`; they act with the creating user's role and reach, never more). Keys can be given an expiry and revoked, and their last-used time and IP are recorded.
 - **AuthZ:** organization-defined roles on top of a fixed permission catalog (see §8.1). Every route is mapped to a permission in one table (`internal/catalog/routes.go`), and the server refuses to start if a route is missing. When a permission's reach is narrower than Everyone, the request pipeline requires a target inside it (a `locationId` or `employeeId` the handler filters by, a path parameter, or a location/employee looked up for the record in `internal/catalog/reach.go`); CRUD resources check each record's location inside the transaction. Anything the pipeline can't narrow is refused (`out_of_reach`) rather than shown in full. The Employee Area (`/me`) pins every request to the caller's own employee.
 - **Audit log:** every mutating service call records actor (user, API key or integration), action, entity, before/after diff, IP, and request ID. The audit log is append-only.
-- **Data protection:** secrets and webhook signing keys are encrypted at rest with `PURROS_SECRET`-derived keys. Sensitive employee fields (national ID, bank details) are encrypted at the column level and masked in the UI and API unless the caller has explicit permission.
+- **Data protection:** secrets and webhook signing keys are encrypted at rest with `PURROS_SECRET`-derived keys. Pay data needs its own permission (`pay.read`). Sensitive employee fields (national ID, bank details) are planned, encrypted at the column level and shown only with `employees.sensitive.read`.
 - **Web security:** strict CSP and security headers on every API response, CSRF protection for cookie-based web sessions (state-changing requests must carry PurrOS's own `Origin`), rate-limited sign-in, and Argon2id password hashing.
-- **Dependencies:** Dependabot/Renovate plus `govulncheck` in CI.
+- **Dependencies:** Dependabot/Renovate and `govulncheck` in CI *(planned; CI runs gofmt, vet, the race detector and the full test suite today)*.
 
 ### 8.1 Roles & permissions model
 
@@ -344,12 +377,14 @@ Integrations depend only on `/api/v1`, so the API versioning policy (§5) is als
 - **Assignment.** Each `User` has exactly one `roleId`, plus `assignedLocationIds[]` and `assignedDepartmentIds[]`, which give the `assigned_*` reaches their concrete values. `own_team` is resolved from the reporting lines on the linked `Employee` (direct and indirect reports).
 - **System roles.** `Owner` has every permission, is immutable and undeletable, and at least one Owner must exist. `Employee` has no permissions, is the configurable default role, and cannot be deleted while it is the default.
 - **Self-access is not a permission.** A user linked to an `Employee` record can always use the Employee Area (`/me` routes) for their own data, whatever their role.
-- **Evaluation.** `can(ctx, permission, target?)` looks up the role's grant for that permission and checks the target against its reach. List queries add a SQL condition for the permission's reach, so filtering happens in the database rather than after loading. Resolved grants are cached in Redis per user and invalidated when the role or the assignment changes, so edits apply on the next request.
+- **Evaluation.** `can(ctx, permission, target?)` looks up the role's grant for that permission and checks the target against its reach. List queries add a SQL condition for the permission's reach, so filtering happens in the database rather than after loading. Grants are loaded for each request, so role and assignment edits apply on the next request.
 - **Escalation guard.** Creating or editing a role, or assigning one to a user, requires `roles.manage` / `users.manage` **and** that every permission involved is held by the actor with an equal or wider reach. Granting `roles.manage` itself is Owner-only.
 - **Integration scopes** (`people:read`, `time:write`, …) are coarse API-key scopes for integrations and are separate from people's roles. Each scope maps to a fixed set of catalog permissions with reach `everyone`.
 - **Audit.** Role creation, edits, deletion and user role/assignment changes are audited with before/after diffs.
 
 ## 9. UI design system
+
+*This section is the plan for the web app (`web/`), which isn't built yet.*
 
 ### Tone
 
@@ -420,21 +455,21 @@ CI (`.github/workflows/api.yml`) runs `gofmt`, `go vet`, the race detector and a
 
 ### Configuration
 
-All configuration lives in environment variables (`PURROS_URL`, `PURROS_SECRET`, `DATABASE_URL`, `REDIS_URL`, `SMTP_*`, `OIDC_*`, `LOG_LEVEL`, `STORAGE_*`, `BACKUP_*`). The app refuses to start with an insecure default secret.
+All configuration lives in environment variables (`PURROS_URL`, `PURROS_SECRET`, `DATABASE_URL`, `REDIS_URL`, `SMTP_*`, `STORAGE_*`, `PURROS_BACKUP_*`, `LOG_LEVEL`), usually kept in `config/purros.env` and loaded automatically by the `purros` command. Everything PurrOS writes at runtime (uploaded files, backups) goes under `PURROS_STATE_DIR` (`/var/lib/purros` in the image). The app refuses to start with an insecure default secret. See [Configuration](docs/getting-started/configuration.md).
 
 ### File storage
 
-A `StorageDriver` interface with `local` (Docker volume) and `s3` (any S3-compatible service) implementations. The database stores only file metadata (key, type, size, SHA-256, owner, visibility). Buckets stay private: uploads use signed PUT URLs direct from the browser (or proxy through the app), and downloads are permission-checked, then redirected to short-lived signed GET URLs. Retention jobs delete files PurrOS no longer needs. `purros storage migrate` moves files between drivers with checksum verification. S3 is required to run more than one `api` instance.
+A `StorageDriver` interface with `local` (Docker volume) and `s3` (any S3-compatible service) implementations. The database stores only file metadata (key, type, size, SHA-256, owner, visibility). Buckets stay private: uploads are streamed through the API (signed PUT URLs direct from the browser are planned), and downloads are permission-checked, then redirected to short-lived signed GET URLs. Retention jobs for files PurrOS no longer needs are planned. `purros storage migrate` moves files between drivers with checksum verification. S3 is required to run more than one `api` instance.
 
 ### Email
 
-Outgoing email uses SMTP only (any provider). Messages are rendered from templates in the recipient's language, queued in PostgreSQL, sent by the worker with pooling and rate limiting, and retried for 24 hours. A delivery log keeps recipient, subject, type and status, but not the body.
+Outgoing email uses SMTP only (any provider). Messages (invitations, sign-in links, password resets today) are rendered from templates, queued in PostgreSQL, sent by the worker with rate limiting, and retried every few minutes for up to 24 hours. Translated templates are planned. A delivery log keeps recipient, subject, type and status, but not the body.
 
 ### Backups
 
 - Postgres is the only stateful service that must be backed up. Redis, when used, holds only rate-limit counters.
-- Built-in backups without external tools (the image has no `pg_dump`): every table is copied with `COPY` in one REPEATABLE READ snapshot into a tar.gz with a manifest (versions, row counts, SHA-256 per table), optionally encrypted (Argon2id key, AES-256-GCM in authenticated chunks). The worker runs them daily into `PURROS_BACKUP_DIR` and prunes old ones. Restore verifies the whole file first, rebuilds the schema at the backup's version, loads the data with foreign keys re-validated, then migrates forward. Upgrades are manual; the CLI doesn't download releases. Files are backed up through bucket versioning and replication, or the volume.
-- `purros doctor`: checks configuration, connectivity, pending migrations, company setup, the outbox and webhook endpoints.
+- Built-in backups without external tools (the image has no `pg_dump`): every table is copied with `COPY` in one REPEATABLE READ snapshot into a tar.gz with a manifest (versions, row counts, SHA-256 per table), optionally encrypted (Argon2id key, AES-256-GCM in authenticated chunks). The worker runs them daily into `PURROS_BACKUP_DIR` and prunes old ones. Restore verifies the whole file first, rebuilds the schema at the backup's version, loads the data with foreign keys re-validated, then migrates forward. Backups include uploaded files by default with local storage (`PURROS_BACKUP_FILES`); with S3 storage, rely on bucket versioning and replication or turn that on too. Backups can also be uploaded to an S3 bucket with their own retention. Upgrades are manual; the CLI doesn't download releases.
+- `purros doctor` checks configuration, connectivity, migrations, company setup, the Owner account, the encryption secret, email, the outbox, webhook endpoints, the stock ledger, location time zones, file storage and backups.
 
 ### Migrations & upgrades
 
@@ -445,7 +480,7 @@ Outgoing email uses SMTP only (any provider). Messages are rendered from templat
 
 - Structured JSON logs (`log/slog`) with `requestId` on every line; every response has an `X-Request-Id` header.
 - `/api/health` (liveness) and `/api/ready` (database reachable, migrations applied).
-- Optional OpenTelemetry traces and metrics export, plus a Prometheus endpoint for queue depth, webhook failure rate and request latency.
+- `purros status` shows queues, email and backups. *(Planned: OpenTelemetry traces and metrics, and a Prometheus endpoint for queue depth, webhook failure rate and request latency.)*
 
 ## 13. Decisions log
 

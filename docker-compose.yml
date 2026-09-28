@@ -1,20 +1,17 @@
 # PurrOS — production-style Compose file.
-# Create .env first with `purros init` (or copy .env.example). See docs/getting-started/installation.md.
+# Create config/ first with `purros init` (or copy the examples in config/).
+# See docs/getting-started/installation.md.
 services:
   api:
     build:
       context: ./api
       args:
         VERSION: ${PURROS_VERSION:-dev}
-    env_file: .env
+    env_file: config/purros.env
     environment:
-      DATABASE_URL: postgres://purros:${POSTGRES_PASSWORD}@db:5432/purros?sslmode=disable
       PURROS_LISTEN: ":8080"
-      # Nightly backups into the "backups" volume (override in .env to change or turn off)
-      PURROS_BACKUP_DIR: ${PURROS_BACKUP_DIR-/backups}
     volumes:
-      - backups:/backups
-      - files:/data/files      # uploaded files (STORAGE_DRIVER=local)
+      - state:/var/lib/purros   # uploaded files and backups (PURROS_STATE_DIR)
     ports:
       - "127.0.0.1:8080:8080"   # put a reverse proxy with TLS in front
     depends_on:
@@ -24,21 +21,18 @@ services:
 
   db:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: purros
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: purros
+    env_file: config/postgres.env
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U purros -d purros"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 20
     restart: unless-stopped
 
   # Optional: share API rate limits across several api containers.
-  # Start with `docker compose --profile redis up -d` and set REDIS_URL=redis://redis:6379 in .env.
+  # Start with `docker compose --profile redis up -d` and set REDIS_URL=redis://redis:6379 in config/purros.env.
   redis:
     image: redis:7-alpine
     profiles: ["redis"]
@@ -46,5 +40,4 @@ services:
 
 volumes:
   db-data:
-  backups:
-  files:
+  state:

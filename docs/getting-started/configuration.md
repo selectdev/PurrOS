@@ -1,8 +1,8 @@
 # Configuration
 
-Server-level configuration lives in environment variables, usually in `.env`. Everything that belongs to the business (features, roles, locations, sign-in methods, labor rules and so on) is configured in the web UI under **Settings**, not here.
+Server-level configuration lives in environment variables, usually in `config/purros.env`. Everything that belongs to the business (features, roles, locations, sign-in methods, labor rules and so on) is stored in the database and managed through the API and the `purros` CLI (and under **Settings** once the web app ships), not here.
 
-Restart the `api` container (and any `worker` containers) after changing `.env`:
+Restart the `api` container (and any `worker` containers) after changing `config/purros.env`:
 
 ```bash
 docker compose up -d
@@ -12,20 +12,30 @@ docker compose up -d
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `PURROS_URL` | Yes | | Public URL, e.g. `https://erp.example.com`. Used in links, emails, passkeys and SSO callbacks. |
+| `PURROS_URL` | Yes | | Public URL, e.g. `https://erp.example.com`. Used in links, emails and the API spec. |
 | `PURROS_SECRET` | Yes | | At least 32 random bytes (`openssl rand -base64 32`). Encrypts stored secrets and signs sessions. PurrOS refuses to start with a missing or example value. |
 | `DATABASE_URL` | Yes | | PostgreSQL connection string. |
 | `REDIS_URL` | No | | Optional Redis, used to share rate limits across several API containers. |
 | `PURROS_LISTEN` | No | `:8080` | Address the API listens on. |
 | `PURROS_RUN_WORKER` | No | `true` | Run the background worker inside `purros serve`. Set to `false` when you run separate `purros worker` containers. |
-| `PURROS_DEFAULT_TIMEZONE` | No | `UTC` | Timezone used before the first location is created. Each location has its own timezone. |
-| `PURROS_DEFAULT_LOCALE` | No | `en` | Default language and number and date formats. Users can choose their own. |
 | `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn` or `error`. |
 | `PURROS_TRUST_PROXY` | No | `true` | Trust `X-Forwarded-*` headers from the reverse proxy. |
+| `PURROS_ENV_FILE` | No | | Env file for the `purros` command to load instead of `$PURROS_CONFIG_DIR/purros.env` (same as `--env-file`). |
+
+## Directories
+
+PurrOS keeps configuration and runtime state apart:
+
+| Variable | Default | Docker image | What's in it |
+|---|---|---|---|
+| `PURROS_CONFIG_DIR` | `./config` | *(unused: Compose passes `config/purros.env` as the environment)* | `purros.env` (PurrOS settings) and `postgres.env` (database container). The `purros` command loads `purros.env` from here when it exists. |
+| `PURROS_STATE_DIR` | `./state` | `/var/lib/purros`, on the `state` volume | `files/` (uploaded files with `local` storage) and `backups/` |
+
+Back up both: `config/` holds `PURROS_SECRET`, and `state/` holds uploaded files. See [Backups & upgrades](../operations/backups-and-upgrades.md).
 
 ## Email
 
-PurrOS sends email through any SMTP server: invitations, sign-in links, notifications, scheduled reports, purchase orders and invoices.
+PurrOS sends email through any SMTP server. Today that's invitations, sign-in links and password resets; notifications, scheduled reports, purchase orders and invoices by email are planned.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -38,26 +48,14 @@ PurrOS sends email through any SMTP server: invitations, sign-in links, notifica
 
 See [Email & file storage](email-and-storage.md#email-smtp) for what's sent, deliverability (SPF, DKIM, DMARC), testing and the delivery log.
 
-## Single sign-on
-
-SSO providers are added in the UI under **Settings → Authentication**. Environment variables are only needed to pre-configure one provider at install time:
-
-| Variable | Description |
-|---|---|
-| `OIDC_ISSUER` | Issuer URL of your identity provider. |
-| `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Client credentials. |
-| `OIDC_DISPLAY_NAME` | Button label, e.g. `Sign in with Microsoft`. |
-
-The redirect URL to register with your identity provider is `PURROS_URL/api/auth/callback/oidc`. See [Authentication](../admin/authentication.md) for SAML and automatic account provisioning.
-
 ## File storage
 
-Files (documents, photos, receipts, payslips, exports) are stored on local disk or in any S3-compatible object storage.
+Uploaded files (documents, photos, receipts…) are stored on local disk or in any S3-compatible object storage.
 
 | Variable | Default | Description |
 |---|---|---|
 | `STORAGE_DRIVER` | `local` | `local` (Docker volume) or `s3` |
-| `STORAGE_LOCAL_PATH` | `/data/files` | Path inside the container for `local` |
+| `STORAGE_LOCAL_PATH` | `$PURROS_STATE_DIR/files` | Where `local` storage keeps files |
 | `STORAGE_S3_BUCKET`, `STORAGE_S3_REGION` | | Bucket and region |
 | `STORAGE_S3_ENDPOINT` | | For non-AWS services (MinIO, R2, Backblaze, Wasabi…) |
 | `STORAGE_S3_ACCESS_KEY_ID`, `STORAGE_S3_SECRET_ACCESS_KEY` | | Credentials (or an IAM role on AWS) |
@@ -72,23 +70,17 @@ See [Email & file storage](email-and-storage.md#file-storage-s3) for bucket setu
 
 | Variable | Default | Description |
 |---|---|---|
-| `PURROS_BACKUP_DIR` | *(off)*; `/backups` in `docker-compose.yml` | Turn on daily backups into this directory |
+| `PURROS_BACKUP_DIR` | *(off)*; `/var/lib/purros/backups` in the config written by `purros init` | Turn on daily backups into this directory |
 | `PURROS_BACKUP_HOUR` | `2` | Hour of the day (UTC) after which the daily backup runs |
 | `PURROS_BACKUP_KEEP` | `14` | How many backups to keep |
 | `PURROS_BACKUP_PASSPHRASE` | | Encrypt backups with this passphrase |
 | `PURROS_BACKUP_FILES` | `auto` | Include uploaded files: `auto` (only with local storage), `true` or `false` |
-| `PURROS_BACKUP_S3_ENABLED`, `PURROS_BACKUP_S3_*` | `false` | Also upload backups to an S3 bucket. See [Database backups to S3](email-and-storage.md#database-backups-to-s3-optional). |
+| `PURROS_BACKUP_S3_ENABLED` | `false` | Also upload backups to an S3 bucket |
+| `PURROS_BACKUP_S3_BUCKET`, `_REGION`, `_ENDPOINT`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_FORCE_PATH_STYLE`, `_SSE`, `_KMS_KEY_ID` | | The backup bucket, with the same meaning as the `STORAGE_S3_*` settings. See [Database backups to S3](email-and-storage.md#database-backups-to-s3-optional). |
+| `PURROS_BACKUP_S3_PREFIX` | `purros-backups/` | Folder inside the bucket |
 | `PURROS_BACKUP_S3_KEEP` | `PURROS_BACKUP_KEEP` | Backups to keep in the bucket |
 
 See [Backups & upgrades](../operations/backups-and-upgrades.md).
-
-## Notifications
-
-| Variable | Description |
-|---|---|
-| `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` | Keys for browser push notifications. Generate them with `purros generate-vapid`. If unset, push is disabled. |
-
-SMS and chat notifications are sent through an [integration](../integrations/recipes.md#notifications-sms-chat) that subscribes to notification webhooks. They aren't configured here.
 
 ## API and ingestion limits
 
@@ -98,29 +90,18 @@ SMS and chat notifications are sent through an [integration](../integrations/rec
 | `API_INGEST_RATE_LIMIT_PER_MIN` | `3000` | Limit for keys that send data feeds (POS, online store). |
 | `API_MAX_BATCH_SIZE` | `1000` | Maximum records per batch request. |
 
-## AI assistant (optional)
+## Planned settings
 
-The optional AI assistant in [Reports & insights](../guides/reports-and-insights.md#ai-assistant-optional) is off unless the feature is enabled **and** a provider is configured. These can also be set in the UI.
+These aren't read by PurrOS yet. They're listed so you know what's coming; setting them today has no effect.
 
-| Variable | Description |
+| Variable | For |
 |---|---|
-| `AI_PROVIDER_BASE_URL` | Base URL of the model API, which can be a self-hosted model server. |
-| `AI_PROVIDER_API_KEY` | API key, if the provider needs one. |
-| `AI_MODEL` | Model name to use. |
+| `PURROS_DEFAULT_TIMEZONE`, `PURROS_DEFAULT_LOCALE` | Timezone before the first location exists; default language and formats |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_DISPLAY_NAME` | Pre-configuring a single sign-on provider (redirect URL `PURROS_URL/api/auth/callback/oidc`). See [Authentication](../admin/authentication.md). |
+| `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` | Browser push notifications (`purros generate-vapid`) |
+| `AI_PROVIDER_BASE_URL`, `AI_PROVIDER_API_KEY`, `AI_MODEL` | The optional [AI assistant](../guides/reports-and-insights.md#ai-assistant-optional). No data will be sent anywhere unless these are set and the feature is on. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Traces and metrics to an OpenTelemetry collector |
+| `METRICS_ENABLED` | Prometheus metrics at `/api/metrics` |
+| `PURROS_TELEMETRY` | Opt-in anonymous usage statistics (off by default) |
 
-No data is sent anywhere unless these are set and the feature is switched on.
-
-## Observability
-
-| Variable | Description |
-|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Send traces and metrics to an OpenTelemetry collector. |
-| `METRICS_ENABLED` | `true` exposes Prometheus metrics at `/api/metrics` (restrict access at the proxy). |
-
-See [Monitoring](../operations/monitoring.md).
-
-## Telemetry
-
-| Variable | Default | Description |
-|---|---|---|
-| `PURROS_TELEMETRY` | `off` | Anonymous usage statistics (version, enabled features, rough size). Opt-in only. |
+SMS and chat notifications will be sent through an [integration](../integrations/recipes.md#notifications-sms-chat) rather than configured here.

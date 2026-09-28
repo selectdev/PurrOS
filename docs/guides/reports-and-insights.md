@@ -2,6 +2,8 @@
 
 Feature key: `insights`.
 
+> **Status:** The API provides KPIs, seven built-in reports (JSON or CSV), rule-based recommendations and KPI alert rules. Dashboards, the custom report builder, scheduled reports and the AI assistant are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 See how every location is doing, catch problems early, and know what to fix first.
 
 ## Dashboards
@@ -64,7 +66,7 @@ Each recommendation explains **why** it was flagged using your own numbers, sugg
 
 `insights.ai_assistant` adds a chat assistant that answers questions about your data ("Why was labor high at Store 102 last week?") and helps explain recommendations (`ai_assistant.use`).
 
-- It's **off by default**, and needs both the feature switch and a model provider configured by an admin (see [Configuration](../getting-started/configuration.md#ai-assistant-optional)).
+- It's **off by default**, and needs both the feature switch and a model provider configured by an admin (see [Configuration](../getting-started/configuration.md#planned-settings)).
 - You choose the provider, including **self-hosted models**, so data doesn't have to leave your infrastructure.
 - It only sees data the asking user is allowed to see.
 - Questions and answers are logged for audit.

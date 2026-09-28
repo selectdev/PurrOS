@@ -101,8 +101,7 @@ func Internal() *Problem {
 
 // AsProblem converts any error into a Problem. Unknown errors become 500s.
 func AsProblem(err error) (*Problem, bool) {
-	var p *Problem
-	if errors.As(err, &p) {
+	if p, ok := errors.AsType[*Problem](err); ok {
 		return p, true
 	}
 	return Internal(), false

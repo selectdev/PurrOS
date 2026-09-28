@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -525,7 +526,7 @@ func load(ctx context.Context, pool *pgxpool.Pool, path, pass string, m Manifest
 			}
 		}
 		for name := range byName {
-			if !contains(existing, name) {
+			if !slices.Contains(existing, name) {
 				return fmt.Errorf("table %s from the backup doesn't exist at schema version %d", name, m.SchemaVersion)
 			}
 		}
@@ -606,13 +607,4 @@ func load(ctx context.Context, pool *pgxpool.Pool, path, pass string, m Manifest
 		}
 		return nil
 	})
-}
-
-func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }

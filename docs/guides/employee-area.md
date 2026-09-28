@@ -2,6 +2,8 @@
 
 Feature key: `employee_area`. Needs People & HR.
 
+> **Status:** Everything under `/api/v1/me` works today: profile, punches and corrections, timesheets, shifts, open shifts, swaps, availability, time off, pay and estimates, payslips, documents, announcements, activity and the data export. Assigned tasks, messages and the screens themselves arrive with the web app. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 The Employee Area is every employee's own space in PurrOS. It shows everything the company holds about them and lets them handle everyday requests themselves. It's written for employees, so you can share this page with your staff.
 
 ## Getting in

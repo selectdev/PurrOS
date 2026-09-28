@@ -3,6 +3,8 @@
 // It mirrors docs/admin/permissions-reference.md and docs/api/README.md#scopes.
 package catalog
 
+import "strings"
+
 type Permission struct {
 	Key         string `json:"key"`
 	Feature     string `json:"feature"`
@@ -131,6 +133,7 @@ type Scope struct {
 
 var Scopes = []Scope{
 	{"organization:read", "core", "Org units, locations, departments, roles, users (read-only)"},
+	{"organization:write", "core", "Create and update org units, locations and departments"},
 	{"attachments:read", "core", "Read and download uploaded files"},
 	{"attachments:write", "core", "Upload and delete files"},
 	{"people:read", "people", "Read employees, documents, skills"},
@@ -173,7 +176,9 @@ func ScopeFeature(scope string) (string, bool) {
 
 // Events maps each webhook event type to its feature (docs/api/webhooks.md).
 var Events = map[string]string{
-	"location.created": "core", "location.updated": "core",
+	"location.created": "core", "location.updated": "core", "location.archived": "core",
+	"org_unit.created": "core", "org_unit.updated": "core", "org_unit.archived": "core",
+	"department.created": "core", "department.updated": "core", "department.archived": "core",
 	"attachment.uploaded": "core", "attachment.deleted": "core",
 
 	"employee.created": "people", "employee.updated": "people", "employee.transferred": "people",
@@ -214,6 +219,54 @@ var Events = map[string]string{
 	"notification.requested": "communication",
 
 	"alert.triggered": "insights", "recommendation.created": "insights.recommendations",
+}
+
+// PingEvent is sent by POST /webhook-endpoints/{id}:ping. It isn't in Events:
+// nobody subscribes to it, it goes only to the endpoint being tested.
+const PingEvent = "webhook.ping"
+
+// EventScopeFeature returns the scope feature an integration needs to receive
+// an event: the event's top-level feature, except that team display events
+// come with the communication scopes and core events with the scope for their
+// kind of record.
+func EventScopeFeature(event string) (feature string, scope string, ok bool) {
+	feat, ok := Events[event]
+	if !ok {
+		return "", "", false
+	}
+	if feat == "core" {
+		if strings.HasPrefix(event, "attachment.") {
+			return "core", "attachments:read", true
+		}
+		return "core", "organization:read", true
+	}
+	top, _, _ := strings.Cut(feat, ".")
+	if top == "displays" {
+		top = "communication"
+	}
+	return top, "", true
+}
+
+// ScopesCoverEvent reports whether an integration with these scopes may
+// receive an event: it needs a scope for the event's feature (read or write),
+// or for core events the specific read scope.
+func ScopesCoverEvent(scopes []string, event string) bool {
+	feat, scope, ok := EventScopeFeature(event)
+	if !ok {
+		return false
+	}
+	for _, s := range scopes {
+		if scope != "" {
+			if s == scope {
+				return true
+			}
+			continue
+		}
+		if f, _ := ScopeFeature(s); f == feat {
+			return true
+		}
+	}
+	return false
 }
 
 // RouteReachQuery returns the reach query for a route.

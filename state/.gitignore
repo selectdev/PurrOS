@@ -1,0 +1,3 @@
+# Runtime state (uploaded files, backups) for local runs. Never committed.
+*
+!.gitignore

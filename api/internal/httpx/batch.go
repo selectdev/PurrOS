@@ -45,8 +45,7 @@ func ValidateItem(v any) []FieldError {
 	if err == nil {
 		return nil
 	}
-	var p *Problem
-	if errors.As(err, &p) {
+	if p, ok := errors.AsType[*Problem](err); ok {
 		if len(p.Errors) > 0 {
 			return p.Errors
 		}

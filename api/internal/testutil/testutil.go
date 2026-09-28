@@ -26,8 +26,10 @@ import (
 	"github.com/selectdev/purros/api/internal/cli"
 	"github.com/selectdev/purros/api/internal/config"
 	"github.com/selectdev/purros/api/internal/db"
+	purrevents "github.com/selectdev/purros/api/internal/events"
 	"github.com/selectdev/purros/api/internal/httpx"
 	"github.com/selectdev/purros/api/internal/ids"
+	"github.com/selectdev/purros/api/internal/integration"
 	"github.com/selectdev/purros/api/internal/secure"
 	"github.com/selectdev/purros/api/internal/server"
 	"github.com/selectdev/purros/api/internal/webhooks"
@@ -107,18 +109,20 @@ func New(t *testing.T, scopes []string, events []string) *Env {
 	hookSrv := httptest.NewServer(env.Hooks)
 	t.Cleanup(hookSrv.Close)
 
-	m := cli.Manifest{Name: "test-integration", DisplayName: "Test Integration", Scopes: scopes}
+	m := integration.Manifest{Name: "test-integration", DisplayName: "Test Integration", Scopes: scopes,
+		Config: []integration.ConfigField{{Key: "token", Type: "secret"}}}
 	if len(events) > 0 {
-		m.Webhooks = &struct {
-			URL    string   `json:"url"`
-			Events []string `json:"events"`
-		}{URL: hookSrv.URL, Events: events}
+		m.Webhooks = &integration.WebhookConfig{URL: hookSrv.URL, Events: events}
 	}
 	if err := m.Validate(ctx, app.Features, true); err != nil {
 		t.Fatal(err)
 	}
 	box, _ := secure.NewBox(testSecret)
-	reg, err := cli.RegisterIntegration(ctx, pool, box, m, map[string]any{"token": "s3cret"})
+	var reg integration.Registered
+	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) (err error) {
+		reg, err = integration.Register(ctx, tx, box, m, map[string]any{"token": "s3cret"}, integration.By{Actor: purrevents.System})
+		return err
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +198,7 @@ func (r Response) Str(path string) string {
 // Get returns a field by dotted path.
 func (r Response) Get(path string) any {
 	var cur any = r.Body
-	for _, p := range strings.Split(path, ".") {
+	for p := range strings.SplitSeq(path, ".") {
 		switch c := cur.(type) {
 		case map[string]any:
 			cur = c[p]
@@ -258,6 +262,22 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(body, &ev)
 	h.Events = append(h.Events, ev)
 	w.WriteHeader(204)
+}
+
+// NewReceiver starts another webhook receiver (for standalone endpoints) and
+// returns it with its URL. Set its secret with SetSecret.
+func NewReceiver(t *testing.T) (*Receiver, string) {
+	r := &Receiver{}
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	return r, srv.URL
+}
+
+// SetSecret changes the signing secret the receiver checks.
+func (h *Receiver) SetSecret(secret string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.secret = secret
 }
 
 // Types returns the received event types in order.

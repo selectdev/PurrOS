@@ -2,6 +2,8 @@
 
 Feature key: `purchasing`. Needs Inventory.
 
+> **Status:** The API covers suppliers and catalogs, suggested orders, purchase orders (approval, send, receive, cancel) and supplier invoices with matching. Emailing orders to suppliers and the screens are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Order the right amount at the right time, receive it accurately, and pay only for what arrived at the agreed price.
 
 ## Suppliers

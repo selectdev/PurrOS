@@ -17,8 +17,6 @@ import (
 
 const adminTag = "Users & Roles"
 
-var reaches = []string{httpx.ReachOwnTeam, httpx.ReachLocations, httpx.ReachDepartments, httpx.ReachEveryone}
-
 type Assignments struct {
 	LocationIDs   *[]string `json:"locationIds,omitempty"`
 	OrgUnitIDs    *[]string `json:"orgUnitIds,omitempty" doc:"Covers every location under these org units"`
@@ -123,8 +121,7 @@ func validatePerms(perms []RolePermission) error {
 func checkAssignable(c *httpx.Ctx, q db.Querier, roleID string) (organization.Role, error) {
 	role, err := organization.GetRole(c, q, roleID)
 	if err != nil {
-		var p *httpx.Problem
-		if errors.As(err, &p) {
+		if _, ok := errors.AsType[*httpx.Problem](err); ok {
 			return role, httpx.Validation(httpx.FieldError{Path: "roleId", Message: "Unknown role"})
 		}
 		return role, err

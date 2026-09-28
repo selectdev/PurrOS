@@ -61,7 +61,7 @@ func CheckKey(key string) error {
 	if key == "" || strings.HasPrefix(key, "/") || strings.Contains(key, "\\") || strings.Contains(key, "\x00") {
 		return fmt.Errorf("invalid storage key %q", key)
 	}
-	for _, part := range strings.Split(key, "/") {
+	for part := range strings.SplitSeq(key, "/") {
 		if part == "" || part == "." || part == ".." {
 			return fmt.Errorf("invalid storage key %q", key)
 		}

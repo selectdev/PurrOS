@@ -397,6 +397,17 @@ func TestOpenAPIAndHealth(t *testing.T) {
 	if !strings.Contains(req, "firstName") || strings.Contains(req, "email") {
 		t.Fatalf("EmployeeInput required fields wrong: %s", req)
 	}
+	// Same-named types from different packages must get their own schemas.
+	bodyRef := func(path string) string {
+		return spec.Str("paths." + path + ".post.requestBody.content.application/json.schema.$ref")
+	}
+	refs := map[string]bool{}
+	for _, p := range []string{"/api/v1/inventory/adjustments", "/api/v1/time-off/adjustments", "/api/v1/forecasts/adjustments"} {
+		refs[bodyRef(p)] = true
+	}
+	if len(refs) != 3 || refs[""] {
+		t.Fatalf("adjustment endpoints share schemas: %v", refs)
+	}
 }
 
 func TestIntegrationSelfService(t *testing.T) {

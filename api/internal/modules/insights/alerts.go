@@ -110,8 +110,7 @@ func evaluateOne(ctx context.Context, pool *pgxpool.Pool, on Enabled, id string,
 	fired := false
 	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		rule, err := alertRules.Get(ctx, tx, "id", id, true)
-		var notFound *httpx.Problem
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*httpx.Problem](err); ok {
 			return nil // deleted meanwhile
 		}
 		if err != nil || rule.ArchivedAt != nil {

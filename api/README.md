@@ -22,7 +22,8 @@ PurrOS is in early development. This is what the API does **today**:
 | **Attachments & storage** | File uploads (proof, photos, receipts, documents…) streamed to local disk or any S3-compatible bucket, with content-based type checks, size limits, SHA-256 checksums, reach-based access, and signed-URL downloads from S3 |
 | **Email** | SMTP with STARTTLS or implicit TLS, sent by the worker from a queue with retries; invitation, sign-in link and password reset emails |
 | **Platform endpoints** | `/me`, `/features`, `/permissions`, integration self-service (`/integrations/self`, config, health, logs) |
-| **Organization** | Org units, locations (time zone and business-day cut-off), departments, roles with permissions, users with assignments (read-only) |
+| **Organization** | Org units (any depth, cycle-checked), locations (time zone, business-day cut-off, status) and departments: create, update, archive and upsert by external ID, with `org_unit.*`, `location.*` and `department.*` events; roles with permissions and users with assignments |
+| **Integrations** | Register from a manifest (scopes, events and typed config validated; secrets encrypted), update to a new version, change config, pause and resume, rotate keys with a grace period, remove; view logs and ingestion batches. Webhook events must be covered by the integration's scopes |
 | **People & HR** | Employees (upsert by external ID, `If-Match`, `:transfer`, `:terminate`, `:rehire`), documents, skills, pay rates, payslips |
 | **Time & Attendance** | Punch batches; labor rule sets; timesheets (`:build`, `:approve`, `:reject`) with overtime; pay periods (`:lock`, CSV export); time-off types, requests, balances and adjustments |
 | **Scheduling** | Demand drivers, forecasts and adjustments, staffing rules and needs, shifts with conflict checks, publishing, open-shift claims, swaps, availability |
@@ -34,18 +35,19 @@ PurrOS is in early development. This is what the API does **today**:
 | **Equipment** | Asset register, meter readings, preventive maintenance (by date or meter) that opens work orders, repair work orders |
 | **Communication** | Announcements with acknowledgments, calendar events, recognitions, display metrics |
 | **Reports & Insights** | KPIs, seven built-in reports (JSON or CSV), rule-based recommendations, KPI alert rules evaluated by the worker |
-| **Webhooks** | Transactional outbox; HMAC-SHA256 signed deliveries; per-record ordering; retries over ~3 days; endpoints auto-disabled after repeated failures; events of disabled features dropped |
-| **CLI** | Guided `setup` and `init`; `status` and `doctor` (secret, SMTP, stock ledger and backup checks); `users`, `roles` and `recover owner` for account recovery; `secret check/rotate`; built-in `backup create/list/download/verify/inspect/restore/prune` with optional encryption, uploaded files included, S3 uploads with retention, and nightly scheduling; `storage test/init/verify/migrate`; `migrate status`; locations, integrations, API keys and features; `--json`, `--yes` and `--env-file` everywhere |
+| **Webhooks** | Transactional outbox; HMAC-SHA256 signed deliveries; per-record ordering; retries over ~3 days; endpoints auto-disabled after repeated failures; events of disabled features dropped. Standalone endpoints, secret rotation, test pings, a delivery log with the exact body sent, single and bulk replay; deliveries wait while an endpoint is disabled or its integration paused |
+| **CLI** | Guided `setup` and `init`; `status` and `doctor` (secret, SMTP, stock ledger and backup checks); `users`, `roles` and `recover owner` for account recovery; `secret check/rotate`; built-in `backup create/list/download/verify/inspect/restore/prune` with optional encryption, uploaded files included, S3 uploads with retention, and nightly scheduling; `storage test/init/verify/migrate`; `migrate status`; locations; integrations (register, update, pause, rotate-key, remove); webhooks (list, enable, retry-failed); API keys and features; `--json`, `--yes` and `--env-file` everywhere |
 
 Every endpoint is listed in the [endpoint index](../docs/api/endpoints.md).
 
-Still planned: passkeys, single sign-on (OIDC and SAML) and SCIM, the web app, direct browser-to-bucket uploads, messaging, scheduled and custom reports, the AI assistant, and backups.
+Still planned: the web app and TypeScript SDK; passkeys, single sign-on (OIDC and SAML) and SCIM; the kiosk timeclock, schedule-aware punching and break attestation; the automatic schedule builder; onboarding, scheduled checklists and petty cash; batch and expiry tracking; messaging, shared files and web push; scheduled and custom reports; the AI assistant; direct browser-to-bucket uploads; notifying admins when a webhook endpoint is disabled; and the `*.expiring`, `punch.exception`, `checklist.overdue`, `notification.requested` and `recommendation.created` webhook events. Their feature switches already exist so the catalog is stable.
 
 ## Quick start
 
 ```bash
 export DATABASE_URL="postgres://purros:purros@localhost:5432/purros?sslmode=disable"
 export PURROS_SECRET="$(openssl rand -base64 32)"
+export PURROS_STATE_DIR=../state   # uploaded files and backups (default ./state)
 
 go run ./cmd/purros setup --company "Acme Coffee" --owner-email owner@example.com --timezone America/Chicago
 # or run `setup` with no flags for a guided setup; prints the Owner's sign-in link
@@ -78,7 +80,7 @@ Integration tests create a fresh database per test, run the real HTTP server, an
 
 ```bash
 docker build -t purros-api .
-docker run --rm -p 8080:8080 -e DATABASE_URL=... -e PURROS_SECRET=... purros-api
+docker run --rm -p 8080:8080 -v purros-state:/var/lib/purros -e DATABASE_URL=... -e PURROS_SECRET=... purros-api
 ```
 
-The image is a static binary on a distroless base, running as a non-root user. See `docker-compose.yml` in the repository root.
+The image is a static binary on a distroless base, running as a non-root user. Uploaded files and backups live in `/var/lib/purros` (`PURROS_STATE_DIR`); mount a volume there. See `docker-compose.yml` in the repository root.

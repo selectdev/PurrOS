@@ -243,8 +243,7 @@ func fieldNames(proto any) map[string]bool {
 		if t.Kind() != reflect.Struct {
 			return
 		}
-		for i := range t.NumField() {
-			f := t.Field(i)
+		for f := range t.Fields() {
 			tag := f.Tag.Get("json")
 			name, _, _ := strings.Cut(tag, ",")
 			if f.Anonymous && name == "" {

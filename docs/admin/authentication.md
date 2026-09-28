@@ -2,7 +2,7 @@
 
 PurrOS has **one account system for everyone**: owners, managers and employees all sign in the same way, and their [role](users-and-roles.md) decides what they can do. Software (integrations and scripts) uses [API keys](#api-keys).
 
-Configure everything here under **Settings → Authentication** (Owner, or `settings.manage`).
+Company-wide settings are managed with `GET/PATCH /api/v1/settings/authentication` (Owner, or `settings.manage`), and under **Settings → Authentication** once the web app ships.
 
 ## Sign-in methods
 
@@ -17,9 +17,11 @@ Turn on any combination of methods:
 
 > **Status:** email + password, magic links, authenticator-app 2FA with recovery codes, sessions, invitations, password reset and personal API keys work today. Passkeys, single sign-on, SCIM and breached-password checks are planned.
 
-People without email (for example some hourly staff) can still be added as employees and clock in at a [kiosk timeclock](../guides/time-and-attendance.md#kiosk-timeclock). Kiosk clock codes only record punches and never sign anyone in.
+People without email (for example some hourly staff) can still be added as employees and have their punches sent by a timeclock integration, or use the [kiosk timeclock](../guides/time-and-attendance.md#kiosk-timeclock) once it ships. Kiosk clock codes only record punches and never sign anyone in.
 
-## Single sign-on
+## Single sign-on *(planned)*
+
+This section describes how SSO will work.
 
 ### OpenID Connect
 
@@ -55,7 +57,7 @@ With SCIM enabled, your identity provider can create, update and deactivate Purr
 
 - Sessions are stored on the server and linked by a secure, `httpOnly`, `SameSite=Lax` cookie.
 - Changing a password signs out all other sessions.
-- Users see their active sessions and devices under **Profile → Security** and can sign any of them out. Admins with `users.manage` can sign out any user.
+- Users see their active sessions and devices (`GET /api/v1/auth/sessions`) and can sign any of them out. Admins can sign out any user with `purros users sign-out <email>`.
 - **Shared-device mode**: mark a tablet or PC as shared (e.g. a back-office PC), and sessions on it time out quickly and are never remembered.
 
 ## Protection against attacks
@@ -75,8 +77,8 @@ With SCIM enabled, your identity provider can create, update and deactivate Purr
 
 - Keys are sent as `Authorization: Bearer <key>` and look like `pk_live_…`.
 - Only a hash is stored. A key is shown once, when it's created.
-- Keys can have an expiry date, and can be rotated or revoked at any time.
-- The admin UI shows each key's last-used time and IP address.
+- Keys can have an expiry date and can be revoked at any time (`DELETE /api/v1/auth/api-keys/{id}`, or `purros api-keys revoke`).
+- Each key's last-used time and IP address are recorded (`purros api-keys list`).
 - A personal key stops working when its user is deactivated.
 
 See the [API overview](../api/README.md#authentication) for details.
@@ -86,7 +88,9 @@ See the [API overview](../api/README.md#authentication) for details.
 If every Owner is locked out, run on the server:
 
 ```bash
-purros users sign-in-link --email owner@example.com [--reset-mfa]
+purros users sign-in-link owner@example.com [--reset-mfa]
+# or, when you can't sign in with any Owner at all:
+purros recover owner
 ```
 
 It prints a one-time link to set a new password (or accept the invitation, for an account that never signed in), optionally removes the authenticator app and recovery codes, and records the action in the audit log. `purros setup` prints the same kind of link for the first Owner.

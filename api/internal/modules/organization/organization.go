@@ -14,14 +14,21 @@ import (
 )
 
 type OrgUnit struct {
-	ID         string     `json:"id"`
-	ParentID   *string    `json:"parentId"`
-	LevelName  string     `json:"levelName" doc:"e.g. Region, District"`
-	Name       string     `json:"name"`
-	ExternalID *string    `json:"externalId"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	ArchivedAt *time.Time `json:"archivedAt"`
+	ID         string     `json:"id" db:"id"`
+	ParentID   *string    `json:"parentId" db:"parent_id"`
+	LevelName  string     `json:"levelName" db:"level_name" doc:"e.g. Region, District"`
+	Name       string     `json:"name" db:"name"`
+	ExternalID *string    `json:"externalId" db:"external_id"`
+	CreatedAt  time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt  time.Time  `json:"updatedAt" db:"updated_at"`
+	ArchivedAt *time.Time `json:"archivedAt" db:"archived_at"`
+}
+
+type OrgUnitInput struct {
+	ParentID   *string `json:"parentId,omitempty" db:"parent_id" doc:"Org unit above this one; empty for a top-level unit"`
+	LevelName  string  `json:"levelName" db:"level_name" validate:"required,max=50" doc:"e.g. Region, District"`
+	Name       string  `json:"name" db:"name" validate:"required,max=200"`
+	ExternalID *string `json:"externalId,omitempty" db:"external_id" validate:"omitempty,extid"`
 }
 
 type Location struct {
@@ -42,13 +49,30 @@ type Location struct {
 	cutoffSeconds     int
 }
 
+type LocationInput struct {
+	OrgUnitID         *string         `json:"orgUnitId,omitempty" doc:"Org unit the location belongs to"`
+	Name              string          `json:"name" validate:"required,max=200"`
+	Code              *string         `json:"code,omitempty" validate:"omitempty,max=20" doc:"Short code, e.g. a store number"`
+	ExternalID        *string         `json:"externalId,omitempty" validate:"omitempty,extid" doc:"The location's ID in your POS or other systems"`
+	Timezone          string          `json:"timezone,omitempty" validate:"max=64" doc:"IANA time zone, e.g. America/Chicago (default: the company's)"`
+	Currency          string          `json:"currency,omitempty" validate:"omitempty,currency" doc:"ISO 4217 code (default: the company's)"`
+	BusinessDayCutoff string          `json:"businessDayCutoff,omitempty" doc:"HH:MM when the business day ends (default 00:00)"`
+	Address           json.RawMessage `json:"address,omitempty" doc:"Free-form address object"`
+	Status            string          `json:"status,omitempty" validate:"omitempty,oneof=open temporarily_closed closed" doc:"open (default), temporarily_closed or closed"`
+}
+
 type Department struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	ExternalID *string    `json:"externalId"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	ArchivedAt *time.Time `json:"archivedAt"`
+	ID         string     `json:"id" db:"id"`
+	Name       string     `json:"name" db:"name"`
+	ExternalID *string    `json:"externalId" db:"external_id"`
+	CreatedAt  time.Time  `json:"createdAt" db:"created_at"`
+	UpdatedAt  time.Time  `json:"updatedAt" db:"updated_at"`
+	ArchivedAt *time.Time `json:"archivedAt" db:"archived_at"`
+}
+
+type DepartmentInput struct {
+	Name       string  `json:"name" db:"name" validate:"required,max=200"`
+	ExternalID *string `json:"externalId,omitempty" db:"external_id" validate:"omitempty,extid"`
 }
 
 // BusinessDate returns the location's business day for an instant, applying
@@ -118,8 +142,7 @@ func (r *LocationResolver) Resolve(ctx context.Context, id, externalID string) (
 	}
 	l, err := GetLocation(ctx, r.q, id, externalID)
 	if err != nil {
-		var p *httpx.Problem
-		if errors.As(err, &p) {
+		if _, ok := errors.AsType[*httpx.Problem](err); ok {
 			if id != "" {
 				return l, fmt.Errorf("unknown locationId %q", id)
 			}
@@ -134,94 +157,12 @@ func (r *LocationResolver) Resolve(ctx context.Context, id, externalID string) (
 	return l, nil
 }
 
-type listQuery struct {
-	httpx.ListParams
+func Routes() []httpx.Route {
+	routes := append(orgUnits.Routes(), departments.Routes()...)
+	routes = append(routes, locationRoutes()...)
+	return append(routes, accessRoutes()...)
 }
 
-func Routes() []httpx.Route {
-	return append([]httpx.Route{
-		{
-			Method: "GET", Path: "/org-units", Tag: "Organization", Scope: "organization:read",
-			Summary: "List org units (regions, districts…)", Query: listQuery{}, Response: httpx.Page[OrgUnit]{},
-			Handler: func(c *httpx.Ctx) (any, error) {
-				lp, err := c.ParseList()
-				if err != nil {
-					return nil, err
-				}
-				rows, err := c.App.Pool.Query(c, `
-					SELECT id, parent_id, level_name, name, external_id, created_at, updated_at, archived_at
-					FROM org_units WHERE id > $1 AND ($2::timestamptz IS NULL OR updated_at >= $2)
-					ORDER BY id LIMIT $3`, lp.AfterID, lp.UpdatedSince, lp.Limit+1)
-				if err != nil {
-					return nil, err
-				}
-				list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OrgUnit, error) {
-					var o OrgUnit
-					err := r.Scan(&o.ID, &o.ParentID, &o.LevelName, &o.Name, &o.ExternalID, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt)
-					return o, err
-				})
-				if err != nil {
-					return nil, err
-				}
-				return httpx.NewPage(list, lp.Limit, func(o OrgUnit) string { return o.ID }), nil
-			},
-		},
-		{
-			Method: "GET", Path: "/locations", Tag: "Organization", Scope: "organization:read",
-			Summary: "List locations", Query: listQuery{}, Response: httpx.Page[Location]{},
-			Handler: func(c *httpx.Ctx) (any, error) {
-				lp, err := c.ParseList()
-				if err != nil {
-					return nil, err
-				}
-				rows, err := c.App.Pool.Query(c, `SELECT `+locationCols+` FROM locations
-					WHERE id > $1 AND ($2::timestamptz IS NULL OR updated_at >= $2)
-					ORDER BY id LIMIT $3`, lp.AfterID, lp.UpdatedSince, lp.Limit+1)
-				if err != nil {
-					return nil, err
-				}
-				list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Location, error) { return scanLocation(r) })
-				if err != nil {
-					return nil, err
-				}
-				return httpx.NewPage(list, lp.Limit, func(l Location) string { return l.ID }), nil
-			},
-		},
-		{
-			Method: "GET", Path: "/locations/{id}", Tag: "Organization", Scope: "organization:read",
-			Summary: "Get a location", Response: Location{},
-			Handler: func(c *httpx.Ctx) (any, error) { return GetLocation(c, c.App.Pool, c.Param("id"), "") },
-		},
-		{
-			Method: "GET", Path: "/locations/external/{externalId}", Tag: "Organization", Scope: "organization:read",
-			Summary: "Get a location by external ID", Response: Location{},
-			Handler: func(c *httpx.Ctx) (any, error) { return GetLocation(c, c.App.Pool, "", c.Param("externalId")) },
-		},
-		{
-			Method: "GET", Path: "/departments", Tag: "Organization", Scope: "organization:read",
-			Summary: "List departments", Query: listQuery{}, Response: httpx.Page[Department]{},
-			Handler: func(c *httpx.Ctx) (any, error) {
-				lp, err := c.ParseList()
-				if err != nil {
-					return nil, err
-				}
-				rows, err := c.App.Pool.Query(c, `
-					SELECT id, name, external_id, created_at, updated_at, archived_at FROM departments
-					WHERE id > $1 AND ($2::timestamptz IS NULL OR updated_at >= $2)
-					ORDER BY id LIMIT $3`, lp.AfterID, lp.UpdatedSince, lp.Limit+1)
-				if err != nil {
-					return nil, err
-				}
-				list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Department, error) {
-					var d Department
-					err := r.Scan(&d.ID, &d.Name, &d.ExternalID, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt)
-					return d, err
-				})
-				if err != nil {
-					return nil, err
-				}
-				return httpx.NewPage(list, lp.Limit, func(d Department) string { return d.ID }), nil
-			},
-		},
-	}, accessRoutes()...)
+type listQuery struct {
+	httpx.ListParams
 }

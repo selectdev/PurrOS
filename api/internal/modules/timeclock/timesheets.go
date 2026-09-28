@@ -52,13 +52,13 @@ var laborRules = &crud.Resource[LaborRuleSet, LaborRuleSetInput]{
 	Tag: "Time & Attendance", Feature: feature, ReadScope: "time:read", WriteScope: "time:write",
 	Defaults: func(in *LaborRuleSetInput) {
 		if in.OvertimeMultiplier == nil {
-			in.OvertimeMultiplier = crud.Ptr(decimal.RequireFromString("1.5"))
+			in.OvertimeMultiplier = new(decimal.RequireFromString("1.5"))
 		}
 	},
 }
 
 // rules used when no rule set is assigned.
-var defaultRules = LaborRuleSet{Name: "Default", WeeklyOvertimeMinutes: crud.Ptr(2400), OvertimeMultiplier: decimal.RequireFromString("1.5")}
+var defaultRules = LaborRuleSet{Name: "Default", WeeklyOvertimeMinutes: new(2400), OvertimeMultiplier: decimal.RequireFromString("1.5")}
 
 // RulesFor returns the labor rules for an employee (their home location's
 // rule set, else the first rule set, else built-in defaults).
@@ -229,10 +229,7 @@ func compute(punches []punchRow, rules LaborRuleSet, tz *time.Location, periodSt
 	closeShift := func(out time.Time) {
 		out = roundTo(out, rules.RoundingMinutes)
 		open.Out = &out
-		mins := int(out.Sub(open.In).Minutes()) - open.BreakMinutes
-		if mins < 0 {
-			mins = 0
-		}
+		mins := max(int(out.Sub(open.In).Minutes())-open.BreakMinutes, 0)
 		open.Minutes = mins
 		d := day(open.In)
 		d.Shifts = append(d.Shifts, *open)

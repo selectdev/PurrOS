@@ -2,6 +2,8 @@
 
 Feature key: `people`. Most other features build on it.
 
+> **Status:** The API covers employees (including transfer, termination and rehire), documents, skills, pay rates and payslips. Onboarding checklists, defined custom fields, expiry reminders and the screens are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 People & HR is the source of truth for **who works for you**: their details, role in the business, pay rates, skills and documents.
 
 ## Employee records
@@ -67,6 +69,6 @@ Recruiting and applicant tracking aren't part of PurrOS. Connect your recruiting
 | `POST /api/v1/employees/{id}:terminate`, `:rehire`, `:transfer` | `people:write` |
 | `GET/POST /api/v1/employees/{id}/pay-rates` | `payroll:read` / `payroll:write` |
 | `GET/POST /api/v1/employees/{id}/documents` | `people:read` / `people:write` |
-| `GET /api/v1/skills`, `POST /api/v1/employees/{id}/skills` | `people:read` / `people:write` |
+| `GET /api/v1/skills`, `PUT /api/v1/employees/{id}/skills/{skillId}` | `people:read` / `people:write` |
 
-Events: `employee.created`, `employee.updated`, `employee.transferred`, `employee.terminated`, `employee.archived`, `pay_rate.changed`, `document.expiring`, `certification.expiring`. See [Webhooks](../api/webhooks.md).
+Events: `employee.created`, `employee.updated`, `employee.transferred`, `employee.terminated`, `employee.archived`, `pay_rate.changed`, `document.expiring` *(planned)*, `certification.expiring` *(planned)*. See [Webhooks](../api/webhooks.md).

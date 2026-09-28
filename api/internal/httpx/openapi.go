@@ -3,8 +3,10 @@ package httpx
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,7 +19,7 @@ import (
 // Request and response schemas are derived from the Go types declared on each
 // route, so the spec can't drift from the code.
 func (a *App) OpenAPI(ctx context.Context, version string) (map[string]any, error) {
-	g := &schemaGen{components: map[string]any{}}
+	g := &schemaGen{components: map[string]any{}, names: map[reflect.Type]string{}, owners: map[string]reflect.Type{}}
 	paths := map[string]map[string]any{}
 
 	for _, r := range a.Router.Routes() {
@@ -99,7 +101,7 @@ func (a *App) OpenAPI(ctx context.Context, version string) (map[string]any, erro
 			"default": map[string]any{
 				"description": "Error",
 				"content": map[string]any{"application/problem+json": map[string]any{
-					"schema": g.schema(reflect.TypeOf(Problem{})),
+					"schema": g.schema(reflect.TypeFor[Problem]()),
 				}},
 			},
 		}
@@ -147,14 +149,16 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 type schemaGen struct {
 	components map[string]any
+	names      map[reflect.Type]string // component name of each struct type
+	owners     map[string]reflect.Type // struct type behind each component name
 }
 
 var (
-	timeType      = reflect.TypeOf(time.Time{})
-	dateType      = reflect.TypeOf(Date{})
-	timeOfDayType = reflect.TypeOf(TimeOfDay{})
-	decimalType   = reflect.TypeOf(decimal.Decimal{})
-	rawType       = reflect.TypeOf(json.RawMessage{})
+	timeType      = reflect.TypeFor[time.Time]()
+	dateType      = reflect.TypeFor[Date]()
+	timeOfDayType = reflect.TypeFor[TimeOfDay]()
+	decimalType   = reflect.TypeFor[decimal.Decimal]()
+	rawType       = reflect.TypeFor[json.RawMessage]()
 )
 
 func (g *schemaGen) schema(t reflect.Type) map[string]any {
@@ -192,7 +196,7 @@ func (g *schemaGen) schema(t reflect.Type) map[string]any {
 	case reflect.Interface:
 		return map[string]any{}
 	case reflect.Struct:
-		name := schemaName(t)
+		name := g.componentName(t)
 		if name == "" {
 			return g.structSchema(t)
 		}
@@ -203,6 +207,29 @@ func (g *schemaGen) schema(t reflect.Type) map[string]any {
 		return map[string]any{"$ref": "#/components/schemas/" + name}
 	}
 	return map[string]any{}
+}
+
+// componentName names a struct's schema. Types from different packages can
+// share a name (inventory.AdjustmentInput, timeclock.AdjustmentInput); the
+// second one seen gets its package name as a prefix so neither is lost.
+func (g *schemaGen) componentName(t reflect.Type) string {
+	if name, ok := g.names[t]; ok {
+		return name
+	}
+	name := schemaName(t)
+	if name == "" {
+		return ""
+	}
+	if _, taken := g.owners[name]; taken {
+		pkg := t.PkgPath()[strings.LastIndexByte(t.PkgPath(), '/')+1:]
+		base := strings.ToUpper(pkg[:1]) + pkg[1:] + name
+		name = base
+		for i := 2; g.owners[name] != nil; i++ {
+			name = base + strconv.Itoa(i)
+		}
+	}
+	g.names[t], g.owners[name] = name, t
+	return name
 }
 
 func schemaName(t reflect.Type) string {
@@ -234,8 +261,7 @@ func (g *schemaGen) structSchema(t reflect.Type) map[string]any {
 }
 
 func (g *schemaGen) fields(t reflect.Type, props map[string]any, required *[]string) {
-	for i := range t.NumField() {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		if !f.IsExported() {
 			continue
 		}
@@ -262,7 +288,7 @@ func (g *schemaGen) fields(t reflect.Type, props map[string]any, required *[]str
 			s = withExtra(s, "description", d)
 		}
 		validateTag := f.Tag.Get("validate")
-		for _, rule := range strings.Split(validateTag, ",") {
+		for rule := range strings.SplitSeq(validateTag, ",") {
 			if enum, ok := strings.CutPrefix(rule, "oneof="); ok {
 				s = withExtra(s, "enum", strings.Fields(enum))
 			}
@@ -278,10 +304,8 @@ func (g *schemaGen) fields(t reflect.Type, props map[string]any, required *[]str
 // if it has no validation rules, isn't omitempty and isn't a pointer (always
 // present in responses).
 func isRequired(validateTag, jsonOpts string, t reflect.Type) bool {
-	for _, rule := range strings.Split(validateTag, ",") {
-		if rule == "required" {
-			return true
-		}
+	if slices.Contains(strings.Split(validateTag, ","), "required") {
+		return true
 	}
 	return validateTag == "" && !strings.Contains(jsonOpts, "omitempty") && t.Kind() != reflect.Pointer
 }
@@ -291,17 +315,14 @@ func withExtra(s map[string]any, k string, v any) map[string]any {
 		return map[string]any{"allOf": []any{s}, k: v}
 	}
 	out := make(map[string]any, len(s)+1)
-	for kk, vv := range s {
-		out[kk] = vv
-	}
+	maps.Copy(out, s)
 	out[k] = v
 	return out
 }
 
 func (g *schemaGen) queryParams(t reflect.Type) []any {
 	var out []any
-	for i := range t.NumField() {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if f.Anonymous {
 			out = append(out, g.queryParams(f.Type)...)

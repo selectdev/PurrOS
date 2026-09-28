@@ -66,7 +66,7 @@ Often a single in-house developer or an outside contractor. Deploys PurrOS and c
 
 ## 5. Scope
 
-The roadmap (§9) sets the order. Sections 5.1–5.7 and 5.9 are the v1 core, and 5.8 and 5.10–5.15 follow in 1.x releases.
+The roadmap (§9) sets the order. The API already covers most of every section below; [api/README.md](api/README.md) lists what's built and what's still planned.
 
 ### 5.1 People (Employee Management)
 - Employee profiles: personal info, contact, employment type (full-time, part-time, contractor), status (active, on leave, terminated), start and end dates
@@ -203,8 +203,8 @@ What PurrOS provides:
 
 1. **REST API + webhooks**: covers the whole product, with a published OpenAPI spec. This is the only way integrations talk to PurrOS.
 2. **Integration registration**: an admin registers an integration with a manifest that declares its name, the API scopes it needs and the webhook events it subscribes to. PurrOS issues the integration its own scoped API key and webhook signing secret, and attributes its changes to it in the audit log.
-3. **TypeScript SDK and integration template** (`@purros/sdk`): a typed API client generated from the OpenAPI spec, webhook signature verification, retry and pagination helpers, and a starter repository.
-4. **CSV import/export**: for one-off loads and for systems with no API at all.
+3. **TypeScript SDK and integration template** (`@purros/sdk`, planned): a typed API client generated from the OpenAPI spec, webhook signature verification, retry and pagination helpers, and a starter repository.
+4. **CSV import/export**: for one-off loads and for systems with no API at all. Reports, payroll and pay periods export CSV today; CSV import is planned.
 
 What PurrOS does **not** provide: official integrations for specific vendors. Because PurrOS doesn't have to track changes in dozens of vendor APIs, the core team can focus on a stable, well-documented API.
 
@@ -236,19 +236,17 @@ Community metrics (tracked, not targeted): GitHub stars, active installs (anonym
 
 ## 9. Roadmap
 
-| Phase | Focus |
-|---|---|
-| **0.1 — Foundation** | Auth, roles and permissions, audit log, API keys, webhooks, organization hierarchy, People module |
-| **0.2 — Time** | Kiosk timeclock, punch ingestion, timesheets, approvals, payroll CSV export, Employee Area |
-| **0.3 — Inventory** | Items, stock ledger, mobile counts, waste, transfers, usage recipes, gain/loss |
-| **0.4 — Purchasing, Sales & Cash** | Suppliers, suggested orders, POs, receiving, invoice matching, sales feeds, sales orders, invoices, cash management |
-| **0.5 — Integrations** | Integration registration and manifests, `@purros/sdk`, integration starter template, example integrations, CSV import templates |
-| **1.0 — Stable** | API v1 frozen, upgrade guarantees, core dashboards, documentation complete |
-| **1.1 — Scheduling & Forecasting** | Demand forecasting, staffing rules, automatic scheduling, availability, swaps, labor rules engine |
-| **1.2 — Operations** | Forms and checklists, audits, corrective actions, sensor readings, equipment and maintenance |
-| **1.3 — Communication** | Announcements, messaging, calendar, files library, Team Displays |
-| **1.4 — Insights** | Custom report builder, scheduled reports, alerts, recommended actions, optional AI assistant |
-| **Later** | Manufacturing (BOM/work orders), UI extension points for integrations, multi-company |
+The API is being built ahead of the web app, so the whole scope below exists as endpoints before it has screens. Status as of September 2026 (unreleased, pre-alpha):
+
+| Phase | Focus | Status |
+|---|---|---|
+| **API foundation** | Auth (password, magic link, TOTP), roles with reach, audit log, API keys, feature switches, webhooks, organization hierarchy, file storage, email, backups, admin CLI | Built |
+| **API modules** | People, time and attendance, scheduling and forecasting, inventory, purchasing, sales, cash, forms and checklists, equipment, communication (announcements, calendar), team display data, reports, KPI alerts, recommendations, Employee Area | Built (see [api/README.md](api/README.md)) |
+| **0.1 — First release** | The web app for setup, People, Time and the Employee Area; `@purros/sdk`; integration template and examples; CSV import templates | Next |
+| **0.2 – 0.4** | Web app screens for inventory, purchasing, sales, cash, scheduling, operations, equipment and insights; kiosk timeclock; schedule-aware punching and break attestation | Planned |
+| **1.0 — Stable** | API v1 frozen, upgrade guarantees, core dashboards, documentation complete | Planned |
+| **1.x** | Passkeys and SSO (OIDC, SAML, SCIM); automatic schedule builder; messaging, shared files and web push; scheduled checklists and onboarding; batch and expiry tracking; petty cash; custom and scheduled reports; optional AI assistant; Prometheus and OpenTelemetry | Planned |
+| **Later** | Manufacturing (BOM/work orders), UI extension points for integrations, multi-company | Ideas |
 
 ## 10. Open questions
 

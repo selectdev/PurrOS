@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -124,9 +125,7 @@ func (e Employee) toInput() EmployeeInput {
 // namespace, and merges it into the existing data.
 func checkIntegrationData(c *httpx.Ctx, existing, incoming map[string]json.RawMessage) (map[string]json.RawMessage, error) {
 	out := map[string]json.RawMessage{}
-	for k, v := range existing {
-		out[k] = v
-	}
+	maps.Copy(out, existing)
 	for k, v := range incoming {
 		if existingV, ok := existing[k]; ok && string(existingV) == string(v) {
 			continue // unchanged (e.g. echoed back in a PATCH)

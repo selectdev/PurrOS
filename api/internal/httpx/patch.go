@@ -3,6 +3,7 @@ package httpx
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 )
 
 // MergePatch overlays the request's JSON fields onto current (JSON merge
@@ -20,13 +21,10 @@ func MergePatch[T any](c *Ctx, current T) (T, error) {
 	}
 	merged := map[string]json.RawMessage{}
 	_ = json.Unmarshal(base, &merged)
-	for k, v := range patch {
-		merged[k] = v
-	}
+	maps.Copy(merged, patch)
 	b, _ := json.Marshal(merged)
 	if err := json.Unmarshal(b, &out); err != nil {
-		var ute *json.UnmarshalTypeError
-		if errors.As(err, &ute) {
+		if ute, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
 			return out, Validation(FieldError{Path: ute.Field, Message: "Must be of type " + ute.Type.String()})
 		}
 		return out, BadRequest(err.Error())

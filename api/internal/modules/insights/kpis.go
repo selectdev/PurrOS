@@ -86,14 +86,12 @@ func (k KPIs) Value(key string) *decimal.Decimal {
 
 var hundred = decimal.NewFromInt(100)
 
-func ptr[T any](v T) *T { return &v }
-
 // ratio returns a/b rounded, or nil when b is zero.
 func ratio(a, b decimal.Decimal, scale int32) *decimal.Decimal {
 	if b.IsZero() {
 		return nil
 	}
-	return ptr(a.Div(b).Round(scale))
+	return new(a.Div(b).Round(scale))
 }
 
 // totals is the sum of a set of days.
@@ -118,31 +116,31 @@ func sum(days []*day) totals {
 // fill sets the day-based KPIs from totals.
 func (k *KPIs) fill(t totals, included map[string]bool) {
 	if included["sales"] {
-		k.NetSales = ptr(t.NetSales.Round(2))
-		k.Transactions = ptr(t.Transactions)
+		k.NetSales = new(t.NetSales.Round(2))
+		k.Transactions = new(t.Transactions)
 		k.AverageTicket = ratio(t.NetSales, decimal.NewFromInt(int64(t.Transactions)), 2)
 	}
 	if included["time"] {
-		k.LaborHours = ptr(t.LaborHours.Round(2))
-		k.LaborCost = ptr(t.LaborCost.Round(2))
+		k.LaborHours = new(t.LaborHours.Round(2))
+		k.LaborCost = new(t.LaborCost.Round(2))
 		if included["sales"] {
 			if p := ratio(t.LaborCost, t.NetSales, 6); p != nil {
-				k.LaborPercent = ptr(p.Mul(hundred).Round(2))
+				k.LaborPercent = new(p.Mul(hundred).Round(2))
 			}
 			k.SalesPerLaborHour = ratio(t.NetSales, t.LaborHours, 2)
 		}
 	}
 	if included["cash"] {
-		k.OverShort = ptr(t.OverShort.Round(2))
+		k.OverShort = new(t.OverShort.Round(2))
 	}
 	if included["inventory.waste"] {
-		k.WasteCost = ptr(t.WasteCost.Round(2))
+		k.WasteCost = new(t.WasteCost.Round(2))
 	}
 	if included["inventory"] {
-		k.COGS = ptr(t.COGS.Round(2))
+		k.COGS = new(t.COGS.Round(2))
 		if included["sales"] {
 			if p := ratio(t.COGS, t.NetSales, 6); p != nil {
-				k.COGSPercent = ptr(p.Mul(hundred).Round(2))
+				k.COGSPercent = new(p.Mul(hundred).Round(2))
 			}
 		}
 	}

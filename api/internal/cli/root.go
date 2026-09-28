@@ -57,8 +57,7 @@ func RunWith(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	root.SetOut(stdout)
 	root.SetErr(stderr)
 	if err := root.ExecuteContext(ctx); err != nil {
-		var ee exitError
-		if errors.As(err, &ee) {
+		if ee, ok := errors.AsType[exitError](err); ok {
 			return ee.code
 		}
 		fmt.Fprintln(stderr, "error:", err)
@@ -79,7 +78,8 @@ func (a *app) rootCmd() *cobra.Command {
 		Long: `PurrOS API server, background worker and admin tool.
 
 Configuration comes from environment variables (see docs/getting-started/configuration.md),
-optionally loaded from a file with --env-file.`,
+loaded from $PURROS_CONFIG_DIR/purros.env (default ./config/purros.env) when it
+exists, or from the file given with --env-file.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -87,16 +87,19 @@ optionally loaded from a file with --env-file.`,
 			if path == "" {
 				path = os.Getenv("PURROS_ENV_FILE")
 			}
-			if path != "" {
-				if err := loadEnvFile(path); err != nil {
-					return err
+			if path == "" {
+				// The default file is optional: in containers the
+				// environment comes from docker compose instead.
+				if _, err := os.Stat(config.EnvFile()); err != nil {
+					return nil
 				}
+				path = config.EnvFile()
 			}
-			return nil
+			return loadEnvFile(path)
 		},
 	}
 	pf := root.PersistentFlags()
-	pf.StringVar(&a.envFile, "env-file", "", "load environment variables from this file (default $PURROS_ENV_FILE)")
+	pf.StringVar(&a.envFile, "env-file", "", "load environment variables from this file (default $PURROS_ENV_FILE, then $PURROS_CONFIG_DIR/purros.env)")
 	pf.BoolVar(&a.jsonOut, "json", false, "print machine-readable JSON")
 	pf.BoolVarP(&a.yes, "yes", "y", false, "answer yes to confirmations")
 	pf.BoolVar(&a.noInput, "no-input", false, "never prompt; fail when input is missing")
@@ -120,7 +123,7 @@ optionally loaded from a file with --env-file.`,
 	add("setup", a.initCmd(), a.setupCmd(), a.configCmd(), a.secretCmd(), a.emailCmd(), a.storageCmd())
 	add("people", a.usersCmd(), a.rolesCmd(), a.recoverCmd())
 	add("data", a.backupCmd())
-	add("manage", a.locationsCmd(), a.integrationsCmd(), a.apiKeysCmd(), a.featuresCmd())
+	add("manage", a.locationsCmd(), a.integrationsCmd(), a.webhooksCmd(), a.apiKeysCmd(), a.featuresCmd())
 	root.AddCommand(a.versionCmd())
 	return root
 }
@@ -264,14 +267,15 @@ func (a *app) confirmTyped(what, word string) error {
 	return nil
 }
 
-// loadEnvFile sets variables from a KEY=VALUE file. Variables already set in
-// the environment win.
-func loadEnvFile(path string) error {
+// parseEnvFile reads a KEY=VALUE file. Blank lines, # comments and an
+// "export " prefix are allowed; values may be quoted.
+func parseEnvFile(path string) (map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("env file: %w", err)
+		return nil, fmt.Errorf("env file: %w", err)
 	}
 	defer f.Close()
+	vals := map[string]string{}
 	sc := bufio.NewScanner(f)
 	n := 0
 	for sc.Scan() {
@@ -284,7 +288,7 @@ func loadEnvFile(path string) error {
 		k, v, ok := strings.Cut(line, "=")
 		k = strings.TrimSpace(k)
 		if !ok || k == "" {
-			return fmt.Errorf("%s:%d: expected KEY=VALUE", path, n)
+			return nil, fmt.Errorf("%s:%d: expected KEY=VALUE", path, n)
 		}
 		v = strings.TrimSpace(v)
 		if len(v) >= 2 && (v[0] == '"' && v[len(v)-1] == '"' || v[0] == '\'' && v[len(v)-1] == '\'') {
@@ -292,11 +296,24 @@ func loadEnvFile(path string) error {
 		} else if i := strings.Index(v, " #"); i >= 0 {
 			v = strings.TrimSpace(v[:i])
 		}
+		vals[k] = v
+	}
+	return vals, sc.Err()
+}
+
+// loadEnvFile sets variables from a KEY=VALUE file. Variables already set in
+// the environment win.
+func loadEnvFile(path string) error {
+	vals, err := parseEnvFile(path)
+	if err != nil {
+		return err
+	}
+	for k, v := range vals {
 		if _, set := os.LookupEnv(k); !set {
 			os.Setenv(k, v)
 		}
 	}
-	return sc.Err()
+	return nil
 }
 
 func humanBytes(n int64) string {

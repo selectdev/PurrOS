@@ -34,37 +34,37 @@ Set `LOG_LEVEL=debug` temporarily when investigating a problem. API errors retur
 
 With `OTEL_EXPORTER_OTLP_ENDPOINT`, traces and metrics are also sent to an OpenTelemetry collector.
 
-## Inside PurrOS
+## Status and checks
 
-**Settings → System** (Owner) shows version, pending migrations, queue depths, failed jobs (with retry), storage use, and the result of the nightly integrity checks.
+`purros status` gives an overview: version, schema, accounts, queues (outbox, webhook deliveries, email), the backup schedule and the last backup.
 
-**Settings → Integrations** shows each integration's heartbeat, batches and rejected records. An integration that hasn't sent a heartbeat for a configurable time raises an alert.
+`purros doctor` checks the installation and exits with code 1 when something is wrong, so you can run it from cron or a monitoring agent:
 
-## Nightly integrity checks
+- configuration, database connection, migrations and company setup
+- the Owner account and the encryption secret
+- email (SMTP), the event outbox, webhook endpoints and email delivery
+- the **stock ledger**: stock on hand equals the sum of stock movements for every item and location
+- location time zones, file storage and backups
 
-The worker runs these every night and alerts Owners if anything is wrong:
+`purros integrations list` shows each integration's health message and last heartbeat, and `purros webhooks list` each webhook endpoint's status with its pending and failed deliveries.
 
-- **Stock ledger:** stock on hand equals the sum of stock movements for every item and location.
-- **Outbox:** no events stuck undelivered.
-- **Sources:** every active data source has sent data within its expected window, e.g. a POS that sent nothing yesterday.
-
-Run them on demand with `purros doctor`.
+*(Planned: a **Settings → System** page in the web app, nightly integrity checks that alert Owners, and alerts when a data source stops sending.)*
 
 ## Common problems
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Sign-in links go to the wrong address | `PURROS_URL` doesn't match the public URL | Correct it and restart |
-| Passkeys fail to register | Site not served over HTTPS, or `PURROS_URL` mismatch | Serve over HTTPS on the exact `PURROS_URL` host |
-| No emails | SMTP settings wrong | **Settings → System → Email → Send test email** or `purros email test` shows the SMTP error, and the delivery log shows failures |
+| No emails | SMTP settings wrong | `purros email test` shows the SMTP error, and `purros email log` shows failed deliveries |
 | Uploads fail, or photos don't load | S3 credentials, bucket permissions or CORS | `purros storage test` reports which step fails. See [bucket setup](../getting-started/email-and-storage.md#bucket-setup) |
 | Backups failing | Backup directory full or not writable, or the worker isn't running | `purros backup list` shows recent runs and their errors; `purros backup create` shows the error directly |
-| Dashboards lag behind the POS | Worker queue backed up | Check `purros_queue_waiting`, and add worker replicas |
-| Sales missing for a day | Integration down or sending the wrong location | Check integration health and the ingestion log, then have the integration re-send the day (safe, because it's idempotent) |
-| Many "unmapped items" | POS items not linked to PurrOS items | Resolve them in **Sales → Unmapped items**, or sync the catalog |
-| Webhook endpoint disabled | Receiver failing repeatedly | Fix the receiver, re-enable it, and replay missed events |
-| `404 feature_disabled` from the API | The feature is switched off | An Owner can enable it under **Settings → Features** |
+| Reports lag behind the POS | Worker backed up | Check the queues in `purros status`, and add `purros worker` replicas |
+| Sales missing for a day | Integration down or sending the wrong location | Check `purros integrations list` and `GET /api/v1/sales/transactions?source=…`, then have the integration re-send the day (safe, because it's idempotent) |
+| Many "unmapped items" | POS items not linked to PurrOS items | List them with `GET /api/v1/sales/unmapped-items` and link them with `POST /api/v1/sales/unmapped-items:map`, or sync the catalog |
+| Webhook endpoint disabled | Receiver failed 25 times in a row | Fix the receiver, check it with `POST /webhook-endpoints/{id}:ping`, then re-enable it (`purros webhooks enable <id>`, or `PATCH /webhook-endpoints/{id}` with `"status": "active"`). Deliveries queued while it was disabled are sent; `purros webhooks retry-failed <id>` also replays those that ran out of retries |
+| An integration's data stops arriving | Integration down, paused, or its key rotated or expired | `GET /integrations/{id}` shows its status, last heartbeat and keys; `GET /integrations/{id}/batches?rejectedOnly=true` and `GET /integrations/{id}/logs?level=error` show what went wrong |
+| `404 feature_disabled` from the API | The feature is switched off | `purros features enable <key>` |
 
 ## Getting help
 
-When reporting a problem, include the PurrOS version (**Settings → System**), relevant `requestId`s, and the output of `purros doctor`. Remove personal data from logs before sharing them.
+When reporting a problem, include the PurrOS version (`purros version`), relevant `requestId`s, and the output of `purros doctor`. Remove personal data from logs before sharing them.

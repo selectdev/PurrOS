@@ -1,6 +1,6 @@
 # Email (SMTP) & file storage (S3)
 
-PurrOS sends email through any **SMTP** server, and stores files either on local disk or in any **S3-compatible** object storage. Both are set with environment variables (see [Configuration](configuration.md)) and can be tested from **Settings → System** or the [CLI](../operations/cli.md).
+PurrOS sends email through any **SMTP** server, and stores files either on local disk or in any **S3-compatible** object storage. Both are set with environment variables (see [Configuration](configuration.md)) and can be tested with the [CLI](../operations/cli.md).
 
 ---
 
@@ -8,19 +8,19 @@ PurrOS sends email through any **SMTP** server, and stores files either on local
 
 ### What PurrOS sends by email
 
-| Email | Sent to |
-|---|---|
-| Invitations, magic sign-in links, password resets | The person signing in |
-| Security notices (new device, 2FA changed, account locked) | The account owner |
-| Schedule published or changed, shift reminders | Employees (if they chose email) |
-| Approval requests and decisions (timesheets, time off, swaps, purchase orders) | Managers and employees |
-| Alerts (overdue checklists, cash over/short, low stock, failed integrations) | Chosen roles |
-| Scheduled reports (PDF, CSV or Excel attached) | Report recipients |
-| Purchase orders (PDF + CSV) | Suppliers, when sending orders by email |
-| Customer invoices (PDF) | Customers |
-| Announcements | Employees who chose email |
+| Email | Sent to | Status |
+|---|---|---|
+| Invitations, magic sign-in links, password resets | The person signing in | Sent today |
+| Security notices (new device, 2FA changed, account locked) | The account owner | Planned |
+| Schedule published or changed, shift reminders | Employees (if they chose email) | Planned |
+| Approval requests and decisions (timesheets, time off, swaps, purchase orders) | Managers and employees | Planned |
+| Alerts (overdue checklists, cash over/short, low stock, failed integrations) | Chosen roles | Planned (alerts are webhooks today) |
+| Scheduled reports (PDF, CSV or Excel attached) | Report recipients | Planned |
+| Purchase orders (PDF + CSV) | Suppliers, when sending orders by email | Planned |
+| Customer invoices (PDF) | Customers | Planned (the PDF is available at `GET /invoices/{id}/pdf`) |
+| Announcements | Employees who chose email | Planned |
 
-Everyone chooses which notifications they get by email in their profile. Security emails and sign-in links are always sent.
+Once notifications ship, everyone will choose which ones they get by email. Security emails and sign-in links will always be sent.
 
 ### Settings
 
@@ -38,7 +38,7 @@ Everyone chooses which notifications they get by email in their profile. Securit
 
 Emails are sent by the worker from a queue, so a slow or unavailable SMTP server never slows the app down. Failed sends are retried with growing delays for up to 24 hours. Once sent, the email body is deleted; only the recipient, subject, kind and status are kept.
 
-### Example `.env`
+### Example `config/purros.env`
 
 ```dotenv
 SMTP_HOST=smtp.your-provider.example
@@ -61,26 +61,26 @@ To keep PurrOS email out of spam folders, set these DNS records for the domain i
 
 ### Test it
 
-- **Settings → System → Email → Send test email**, or
-- `docker compose exec api purros email test --to you@example.com`
+```bash
+docker compose exec api purros email test --to you@example.com
+```
 
-Both show the exact SMTP error if sending fails.
+It shows the exact SMTP error if sending fails.
 
 ### Delivery log
 
-**Settings → System → Email** lists recent emails with their status (queued, sent, failed, bounced if your provider reports it) and the reason for failures. Email content is not stored in the log, only the recipient, subject and type.
+`purros email log [--limit 30]` lists recent emails with their status (queued, sent, failed) and the reason for failures. Email content is not kept once sent, only the recipient, subject and type.
 
 ### Branding and language
 
-Emails use the company logo and name from **Settings → Company**, and are sent in each recipient's language. Admins can edit the wording of invitation and announcement emails under **Settings → Email templates**.
+Emails use the company name. *(Planned: the company logo, each recipient's language, and editable templates.)*
 
 ### Without SMTP
 
 PurrOS works without email, but:
 
-- invitation and sign-in links have to be copied from the admin UI and shared by hand
-- magic-link sign-in is unavailable
-- notifications are in-app and push only, and scheduled reports and emailed POs are disabled
+- invitation and sign-in links are printed instead (`purros users invite`, `purros users sign-in-link`) and have to be shared by hand
+- magic-link sign-in and password reset by email are unavailable
 
 ---
 
@@ -88,15 +88,7 @@ PurrOS works without email, but:
 
 ### What PurrOS stores as files
 
-| Files | Examples |
-|---|---|
-| Employee documents | Contracts, IDs, certificates |
-| Photos | Kiosk clock-in photos, checklist and audit photos, repair ticket photos, waste photos |
-| Receipts and invoices | Paid-out receipts, supplier invoices, generated customer invoices |
-| Payslips | PDFs sent in by a payroll integration |
-| Shared library | Manuals, policies, training material |
-| Imports and exports | Uploaded CSVs, report exports, "Export my data" ZIPs, full company exports |
-| Branding | Logo and team display images |
+Anything uploaded through [attachments](../api/attachments.md): employee documents (contracts, IDs, certificates), photos (checklist, audit, repair ticket and waste photos), receipts and supplier invoices, and payslip PDFs. *(Planned: kiosk photos, the shared files library, imports and full company exports, and branding images. "Export my data" ZIPs and invoice PDFs are generated on request and not stored.)*
 
 The database only keeps each file's metadata (name, type, size, checksum, owner, who can see it). The file itself lives in storage.
 
@@ -104,7 +96,7 @@ The database only keeps each file's metadata (name, type, size, checksum, owner,
 
 | `STORAGE_DRIVER` | Where files go | Good for |
 |---|---|---|
-| `local` (default) | A Docker volume inside the server | Single-server installs, evaluation |
+| `local` (default) | `$PURROS_STATE_DIR/files` (the `state` volume in Docker) | Single-server installs, evaluation |
 | `s3` | Any S3-compatible object storage | Production, multiple app servers, large volumes, easier backups |
 
 S3-compatible services include AWS S3, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces, Google Cloud Storage (interoperability mode), and self-hosted MinIO, Garage or Ceph.
@@ -172,7 +164,7 @@ Create the bucket once in the MinIO console (port 9001) or with `purros storage 
 - **Keep the bucket private.** PurrOS never makes files public. Downloads use short-lived **signed URLs** created only after checking that the person may see the file.
 - **Turn on versioning**, so deleted or overwritten files can be recovered.
 - **Encryption at rest:** use `STORAGE_S3_SSE`, or the provider's default bucket encryption.
-- **Lifecycle rules** are optional. PurrOS deletes files itself according to its retention settings (e.g. kiosk photos after 90 days), so don't set rules that delete files PurrOS still references.
+- **Lifecycle rules** are optional. Don't set rules that delete files PurrOS still references. *(Retention settings that let PurrOS delete old files itself, e.g. kiosk photos after 90 days, are planned.)*
 - **Minimum permissions** for the access key, on the bucket and prefix only: `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:AbortMultipartUpload`.
 
 Example IAM policy for AWS:
@@ -204,7 +196,7 @@ Example IAM policy for AWS:
 ### Moving from local disk to S3
 
 ```bash
-# 1. Add the S3 settings to .env, but keep STORAGE_DRIVER=local for now
+# 1. Add the S3 settings to config/purros.env, but keep STORAGE_DRIVER=local for now
 docker compose exec api purros storage migrate --to s3
 # 2. When it reports "0 remaining", switch the driver
 #    STORAGE_DRIVER=s3
@@ -243,4 +235,4 @@ purros storage init --backups               # create the bucket if needed
 
 Encrypt backups before they leave the server with `PURROS_BACKUP_PASSPHRASE`. See [Backups & upgrades](../operations/backups-and-upgrades.md).
 
-The files in storage are backed up separately, through bucket versioning and replication or your own tools.
+With S3 file storage, the files themselves are backed up through bucket versioning and replication or your own tools, unless you set `PURROS_BACKUP_FILES=true` to include them in backups. With local storage they're included by default.

@@ -346,7 +346,6 @@ func (a *app) usersCmd() *cobra.Command {
 		{"deactivate", "Deactivate an account (signs them out and stops their personal keys)", "deactivated"},
 		{"reactivate", "Reactivate a deactivated account", "active"},
 	} {
-		s := s
 		cmd.AddCommand(a.userCommand(s.use, s.short, func(ctx context.Context, pool *pgxpool.Pool, _ config.Config, u userRow) error {
 			return db.InTx(ctx, pool, func(tx pgx.Tx) error {
 				if s.to == "deactivated" {

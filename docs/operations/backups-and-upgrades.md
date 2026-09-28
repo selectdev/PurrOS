@@ -5,8 +5,8 @@
 | Data | Where | Back up? |
 |---|---|---|
 | Database | PostgreSQL (`db` service or managed Postgres) | **Yes, daily at least.** PurrOS does this itself (see below). |
-| Attachments | The `files` Docker volume, or your S3 bucket | **Yes.** With local storage, PurrOS backups include them. |
-| `.env`, especially `PURROS_SECRET` | Your server | **Yes, stored separately and securely** |
+| Attachments | `$PURROS_STATE_DIR/files` (the `state` volume in Docker), or your S3 bucket | **Yes.** With local storage, PurrOS backups include them. |
+| `config/`, especially `PURROS_SECRET` | Your server | **Yes, stored separately and securely** |
 | Redis | `redis` service | No. It only holds rate-limit counters. |
 
 Without `PURROS_SECRET`, encrypted values in a restored database can't be read. These are integration settings, webhook secrets and authenticator-app secrets. `purros backup inspect` shows whether a backup matches the current secret.
@@ -36,7 +36,7 @@ Set `PURROS_BACKUP_DIR`, `PURROS_BACKUP_S3_ENABLED` or both, and the worker make
 
 | Variable | Default | Description |
 |---|---|---|
-| `PURROS_BACKUP_DIR` | *(off)*; `/backups` in `docker-compose.yml` | Where backups are written |
+| `PURROS_BACKUP_DIR` | *(off)*; `/var/lib/purros/backups` in the config written by `purros init` | Where backups are written |
 | `PURROS_BACKUP_HOUR` | `2` | Hour of the day (UTC) after which the daily backup runs |
 | `PURROS_BACKUP_KEEP` | `14` | How many backups to keep. The newest is never deleted. |
 | `PURROS_BACKUP_PASSPHRASE` | | Encrypt backups with this passphrase. **Store it with `PURROS_SECRET`.** |
@@ -46,25 +46,25 @@ Set `PURROS_BACKUP_DIR`, `PURROS_BACKUP_S3_ENABLED` or both, and the worker make
 
 When several workers run, only one makes the backup. `purros status` shows the schedule and the last backup, and `purros doctor` fails if scheduled backups haven't succeeded for 36 hours.
 
-The Compose file keeps backups in the `backups` volume. **Keep a copy off the server**: turn on S3 uploads, or copy the volume with your usual tools, for example:
+The Compose file keeps backups in the `state` volume, under `/var/lib/purros/backups`. **Keep a copy off the server**: turn on S3 uploads, or copy the volume with your usual tools, for example:
 
 ```bash
-docker compose cp api:/backups ./purros-backups
+docker compose cp api:/var/lib/purros/backups ./purros-backups
 ```
 
 For very large installs or point-in-time recovery, add WAL archiving (for example pgBackRest or WAL-G) or your managed database's snapshots.
 
 ## Attachment backups
 
-- **Local volume:** back up the volume directory with your usual tools (restic, borg, rsync).
+- **Local storage:** PurrOS backups include the files by default. For a separate copy, back up the `state` volume (or `$PURROS_STATE_DIR/files`) with your usual tools (restic, borg, rsync).
 - **S3-compatible storage:** turn on bucket versioning, and replicate to a second region or provider.
 
 ## Restoring
 
 ```bash
 docker compose stop api
-docker compose run --rm api backup verify /backups/purros-20260927-020012-scheduled.purros-backup
-docker compose run --rm api backup restore /backups/purros-20260927-020012-scheduled.purros-backup --replace
+docker compose run --rm api backup verify /var/lib/purros/backups/purros-20260927-020012-scheduled.purros-backup
+docker compose run --rm api backup restore /var/lib/purros/backups/purros-20260927-020012-scheduled.purros-backup --replace
 # or straight from the S3 backup bucket:
 # docker compose run --rm api backup list --remote
 # docker compose run --rm api backup restore s3:purros-20260927-020012-scheduled.purros-backup --replace
@@ -81,7 +81,7 @@ What `restore` does:
 5. It rebuilds the schema at the backup's version, and loads every table with all references re-checked.
 6. It migrates to the current version. This means a backup from an older PurrOS can be restored into a newer one.
 
-Backups that include uploaded files put them back into the configured storage. Otherwise, restore the files volume or bucket to the same point in time.
+Backups that include uploaded files put them back into the configured storage. Otherwise, restore the `state` volume or bucket to the same point in time.
 
 **Test a restore** on a spare machine at least every few months: `purros backup restore` into an empty database, then `purros doctor`.
 

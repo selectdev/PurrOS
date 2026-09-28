@@ -1,12 +1,12 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/mail"
 	"net/url"
 	"os"
@@ -43,22 +43,31 @@ func (a *app) initCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Create a .env file with generated secrets",
-		Long: `Create the .env file used by docker-compose.yml, with a new PURROS_SECRET and
-database password. An existing PURROS_SECRET is always kept: replacing it would
-make encrypted data unreadable.`,
+		Short: "Create the configuration files with generated secrets",
+		Long: `Create the configuration directory used by docker-compose.yml:
+
+  purros.env     settings for PurrOS, with a new PURROS_SECRET
+  postgres.env   settings for the database container, with a new password
+
+An existing PURROS_SECRET and database password are always kept: replacing the
+secret would make encrypted data unreadable.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path := filepath.Join(dir, ".env")
+			appPath := filepath.Join(dir, config.EnvFileName)
+			dbPath := filepath.Join(dir, "postgres.env")
 			existing := map[string]string{}
-			if _, err := os.Stat(path); err == nil {
-				if !force {
-					return fmt.Errorf("%s already exists (use --force to rewrite it; its PURROS_SECRET and passwords are kept)", path)
+			for _, p := range []string{appPath, dbPath} {
+				if _, err := os.Stat(p); err != nil {
+					continue
 				}
-				var err error
-				if existing, err = readEnvFile(path); err != nil {
+				if !force {
+					return fmt.Errorf("%s already exists (use --force to rewrite it; its PURROS_SECRET and passwords are kept)", p)
+				}
+				vals, err := parseEnvFile(p)
+				if err != nil {
 					return err
 				}
+				maps.Copy(existing, vals)
 			}
 			if publicURL == "" {
 				publicURL = existing["PURROS_URL"]
@@ -75,30 +84,40 @@ make encrypted data unreadable.`,
 			if err := validURL(publicURL); err != nil {
 				return err
 			}
-			keep := func(k, generated string) string {
-				if v := existing[k]; v != "" {
-					return v
-				}
-				return generated
+			secret := existing["PURROS_SECRET"]
+			if secret == "" {
+				secret = randomSecret(36)
 			}
-			content := fmt.Sprintf(envTemplate, time.Now().Format("2006-01-02"), strings.TrimRight(publicURL, "/"),
-				keep("PURROS_SECRET", randomSecret(36)), keep("POSTGRES_PASSWORD", randomSecret(24)))
-			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			dbPass := existing["POSTGRES_PASSWORD"]
+			if dbPass == "" {
+				dbPass = randomSecret(24)
+			}
+			if err := os.MkdirAll(dir, 0o700); err != nil {
 				return err
 			}
-			a.printf("Wrote %s (readable only by you).\n\n", path)
+			today := time.Now().Format("2006-01-02")
+			files := []struct{ path, content string }{
+				{appPath, fmt.Sprintf(appEnvTemplate, today, strings.TrimRight(publicURL, "/"), secret, dbPass)},
+				{dbPath, fmt.Sprintf(postgresEnvTemplate, today, dbPass)},
+			}
+			for _, f := range files {
+				if err := os.WriteFile(f.path, []byte(f.content), 0o600); err != nil {
+					return err
+				}
+			}
+			a.printf("Wrote %s and %s (readable only by you).\n\n", appPath, dbPath)
 			a.printf("Keep a copy of PURROS_SECRET somewhere safe: without it, encrypted data in the\ndatabase and in backups can't be read.\n\n")
 			a.printf("Next:\n  docker compose up -d\n  docker compose exec api purros setup\n")
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&dir, "dir", ".", "directory to write .env in")
+	cmd.Flags().StringVar(&dir, "dir", config.ConfigDir(), "configuration directory to write (default $PURROS_CONFIG_DIR or ./config)")
 	cmd.Flags().StringVar(&publicURL, "url", "", "public URL (PURROS_URL)")
-	cmd.Flags().BoolVar(&force, "force", false, "rewrite an existing .env, keeping its secrets")
+	cmd.Flags().BoolVar(&force, "force", false, "rewrite existing files, keeping their secrets")
 	return cmd
 }
 
-const envTemplate = `# PurrOS configuration, created by "purros init" on %s.
+const appEnvTemplate = `# PurrOS configuration, created by "purros init" on %s.
 # See docs/getting-started/configuration.md for every option.
 
 # --- Required -------------------------------------------------------------
@@ -106,15 +125,16 @@ PURROS_URL=%s
 # Encrypts secrets in the database and signs sessions. Keep a copy somewhere
 # safe; never change it (use "purros secret rotate" to replace it).
 PURROS_SECRET=%s
-POSTGRES_PASSWORD=%s
+# The password must match POSTGRES_PASSWORD in postgres.env.
+DATABASE_URL=postgres://purros:%s@db:5432/purros?sslmode=disable
 
 # --- Optional -------------------------------------------------------------
 PURROS_RUN_WORKER=true
 PURROS_TRUST_PROXY=true
 LOG_LEVEL=info
 
-# Scheduled backups (inside the container, mount a volume here)
-# PURROS_BACKUP_DIR=/backups
+# Nightly backups into the state volume. Leave empty to turn them off.
+PURROS_BACKUP_DIR=/var/lib/purros/backups
 # PURROS_BACKUP_HOUR=2
 # PURROS_BACKUP_KEEP=14
 # PURROS_BACKUP_PASSPHRASE=
@@ -127,26 +147,11 @@ LOG_LEVEL=info
 # SMTP_FROM="Acme Operations <ops@acme.example>"
 `
 
-func readEnvFile(path string) (map[string]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	out := map[string]string{}
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		k, v, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
-		if ok {
-			out[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
-		}
-	}
-	return out, sc.Err()
-}
+const postgresEnvTemplate = `# Database container settings, created by "purros init" on %s.
+POSTGRES_USER=purros
+POSTGRES_PASSWORD=%s
+POSTGRES_DB=purros
+`
 
 func validURL(s string) error {
 	if !regexp.MustCompile(`^https?://[^/\s]+(/.*)?$`).MatchString(s) {
@@ -203,8 +208,8 @@ func localTZ() string {
 		return name
 	}
 	if target, err := os.Readlink("/etc/localtime"); err == nil {
-		if i := strings.Index(target, "zoneinfo/"); i >= 0 {
-			if tz := target[i+len("zoneinfo/"):]; validTZ(tz) == nil {
+		if _, after, ok := strings.Cut(target, "zoneinfo/"); ok {
+			if tz := after; validTZ(tz) == nil {
 				return tz
 			}
 		}
@@ -409,6 +414,7 @@ func (a *app) configCmd() *cobra.Command {
 			vals := map[string]string{
 				"PURROS_URL": cfg.URL, "PURROS_SECRET": mask(cfg.Secret), "DATABASE_URL": maskURL(cfg.DatabaseURL),
 				"REDIS_URL": maskURL(cfg.RedisURL), "PURROS_LISTEN": cfg.ListenAddr, "LOG_LEVEL": cfg.LogLevel,
+				"PURROS_STATE_DIR":   cfg.StateDir,
 				"PURROS_TRUST_PROXY": fmt.Sprint(cfg.TrustProxy), "PURROS_RUN_WORKER": fmt.Sprint(cfg.RunWorker),
 				"API_RATE_LIMIT_PER_MIN": fmt.Sprint(cfg.RateLimitPerMin), "API_INGEST_RATE_LIMIT_PER_MIN": fmt.Sprint(cfg.IngestRateLimitPerMin),
 				"API_MAX_BATCH_SIZE": fmt.Sprint(cfg.MaxBatchSize),

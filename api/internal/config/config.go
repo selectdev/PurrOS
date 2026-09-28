@@ -5,9 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+// Directory layout. Configuration lives in ConfigDir (the env files written by
+// `purros init`); everything PurrOS writes at runtime lives under StateDir.
+const (
+	DefaultConfigDir = "config" // PURROS_CONFIG_DIR
+	DefaultStateDir  = "state"  // PURROS_STATE_DIR
+	EnvFileName      = "purros.env"
+)
+
+// ConfigDir is the directory holding purros.env (PURROS_CONFIG_DIR).
+func ConfigDir() string { return env("PURROS_CONFIG_DIR", DefaultConfigDir) }
+
+// EnvFile is the env file loaded by default: $PURROS_CONFIG_DIR/purros.env.
+func EnvFile() string { return filepath.Join(ConfigDir(), EnvFileName) }
 
 type Config struct {
 	URL         string // PURROS_URL
@@ -17,6 +32,7 @@ type Config struct {
 	ListenAddr  string // PURROS_LISTEN (default :8080)
 	LogLevel    string // LOG_LEVEL
 	TrustProxy  bool   // PURROS_TRUST_PROXY: trust X-Forwarded-For from the reverse proxy
+	StateDir    string // PURROS_STATE_DIR: uploaded files and backups (default ./state)
 
 	RateLimitPerMin       int // API_RATE_LIMIT_PER_MIN
 	IngestRateLimitPerMin int // API_INGEST_RATE_LIMIT_PER_MIN
@@ -35,7 +51,7 @@ type Config struct {
 // Storage configures where uploaded files live (STORAGE_*).
 type Storage struct {
 	Driver       string // STORAGE_DRIVER: local (default) or s3
-	LocalPath    string // STORAGE_LOCAL_PATH (default /data/files)
+	LocalPath    string // STORAGE_LOCAL_PATH (default $PURROS_STATE_DIR/files)
 	S3           S3     // STORAGE_S3_*
 	SignedURLTTL int    // STORAGE_SIGNED_URL_TTL seconds (default 300)
 	MaxUploadMB  int    // STORAGE_MAX_UPLOAD_MB (default 25)
@@ -86,6 +102,15 @@ type Backup struct {
 // Scheduled reports whether the worker makes daily backups.
 func (b Backup) Scheduled() bool { return b.Dir != "" || b.S3Enabled }
 
+// BackupDir is where manual backups go when no directory is given:
+// PURROS_BACKUP_DIR, or $PURROS_STATE_DIR/backups.
+func (c Config) BackupDir() string {
+	if c.Backup.Dir != "" {
+		return c.Backup.Dir
+	}
+	return filepath.Join(c.StateDir, "backups")
+}
+
 // SMTP configures outgoing email. Email is off when Host is empty.
 type SMTP struct {
 	Host            string // SMTP_HOST
@@ -108,6 +133,7 @@ var insecureSecrets = map[string]bool{"": true, "change-me": true, "changeme": t
 // Load reads the configuration. requireSecret is false for commands that don't
 // touch encrypted data (e.g. `migrate`).
 func Load(requireSecret bool) (Config, error) {
+	stateDir := env("PURROS_STATE_DIR", DefaultStateDir)
 	c := Config{
 		URL:                   strings.TrimRight(env("PURROS_URL", "http://localhost:8080"), "/"),
 		Secret:                os.Getenv("PURROS_SECRET"),
@@ -116,6 +142,7 @@ func Load(requireSecret bool) (Config, error) {
 		ListenAddr:            env("PURROS_LISTEN", ":8080"),
 		LogLevel:              env("LOG_LEVEL", "info"),
 		TrustProxy:            envBool("PURROS_TRUST_PROXY", true),
+		StateDir:              stateDir,
 		RateLimitPerMin:       envInt("API_RATE_LIMIT_PER_MIN", 600),
 		IngestRateLimitPerMin: envInt("API_INGEST_RATE_LIMIT_PER_MIN", 3000),
 		MaxBatchSize:          envInt("API_MAX_BATCH_SIZE", 1000),
@@ -131,7 +158,7 @@ func Load(requireSecret bool) (Config, error) {
 		},
 		Storage: Storage{
 			Driver:       env("STORAGE_DRIVER", "local"),
-			LocalPath:    env("STORAGE_LOCAL_PATH", "/data/files"),
+			LocalPath:    env("STORAGE_LOCAL_PATH", filepath.Join(stateDir, "files")),
 			S3:           loadS3("STORAGE_S3_"),
 			SignedURLTTL: envInt("STORAGE_SIGNED_URL_TTL", 300),
 			MaxUploadMB:  envInt("STORAGE_MAX_UPLOAD_MB", 25),

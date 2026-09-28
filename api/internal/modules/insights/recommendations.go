@@ -62,8 +62,6 @@ func Recommend(ctx context.Context, q db.Querier, on Enabled, now time.Time, loc
 	return out, nil
 }
 
-func strp(s string) *string { return &s }
-
 func recommendReorders(ctx context.Context, q db.Querier, _ Enabled, _ time.Time, loc string) ([]Recommendation, error) {
 	rows, err := q.Query(ctx, `SELECT i.id, i.name, l.id, l.name, s.on_hand, s.reorder_point, s.par_level
 		FROM stock_levels s JOIN items i ON i.id = s.item_id JOIN locations l ON l.id = s.location_id
@@ -90,7 +88,7 @@ func recommendReorders(ctx context.Context, q db.Querier, _ Enabled, _ time.Time
 			detail += fmt.Sprintf(" Order %s to reach par.", par.Sub(onHand).String())
 		}
 		out = append(out, Recommendation{Kind: "reorder", Severity: sev, Title: "Reorder " + item, Detail: detail,
-			LocationID: strp(locID), EntityType: "item", EntityID: itemID})
+			LocationID: new(locID), EntityType: "item", EntityID: itemID})
 	}
 	return out, rows.Err()
 }
@@ -137,7 +135,7 @@ func recommendStaleWorkOrders(ctx context.Context, q db.Querier, _ Enabled, now 
 		days := int(now.Sub(created).Hours() / 24)
 		out = append(out, Recommendation{Kind: "stale_work_order", Severity: sev, Title: "Follow up: " + title,
 			Detail:     fmt.Sprintf("This %s-priority work order has been open for %d day(s).", priority, days),
-			LocationID: strp(locID), EntityType: "work_order", EntityID: id})
+			LocationID: new(locID), EntityType: "work_order", EntityID: id})
 	}
 	return out, rows.Err()
 }
@@ -167,7 +165,7 @@ func recommendLabor(ctx context.Context, q db.Querier, on Enabled, now time.Time
 		if pct.GreaterThan(LaborPercentTarget) {
 			out = append(out, Recommendation{Kind: "high_labor", Severity: "warning", Title: "Labor ran high on " + y.Format(time.DateOnly),
 				Detail:     fmt.Sprintf("Labor was %s%% of sales against a %s%% target. Review the schedule against the forecast.", pct.String(), LaborPercentTarget.String()),
-				LocationID: strp(d.LocationID)})
+				LocationID: new(d.LocationID)})
 		}
 	}
 	return out, nil
@@ -192,7 +190,7 @@ func recommendCash(ctx context.Context, q db.Querier, _ Enabled, now time.Time, 
 		}
 		out = append(out, Recommendation{Kind: "cash_variance", Severity: "warning", Title: "Cash over/short on " + y.Format(time.DateOnly),
 			Detail:     fmt.Sprintf("Closing counts were %s against expected, beyond the %s tolerance.", os.StringFixed(2), tol.StringFixed(2)),
-			LocationID: strp(locID)})
+			LocationID: new(locID)})
 	}
 	return out, rows.Err()
 }
@@ -211,7 +209,7 @@ func recommendApprovals(ctx context.Context, q db.Querier, _ Enabled, _ time.Tim
 			return nil, err
 		}
 		out = append(out, Recommendation{Kind: "approve_purchase_order", Severity: "info", Title: "Approve " + number,
-			Detail: "This purchase order is over the approval limit and waiting for approval.", LocationID: strp(locID),
+			Detail: "This purchase order is over the approval limit and waiting for approval.", LocationID: new(locID),
 			EntityType: "purchase_order", EntityID: id})
 	}
 	return out, rows.Err()

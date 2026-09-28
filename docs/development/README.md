@@ -10,6 +10,8 @@ PurrOS is a monorepo:
 | `web/` | The web app: dashboard, Employee Area, kiosk, team displays (planned) | Next.js, TypeScript, Tailwind CSS |
 | `packages/sdk/` | `@purros/sdk`, the typed API client (planned) | TypeScript |
 | `docs/` | This documentation | Markdown |
+| `config/` | Deployment configuration: `purros.env` and `postgres.env` (git-ignored; only the `*.example` files are committed) | dotenv |
+| `state/` | Runtime state for local runs: uploaded files and backups (git-ignored) | |
 
 ## API: local setup
 
@@ -24,6 +26,7 @@ cd api
 export DATABASE_URL="postgres://purros:purros@localhost:5432/purros?sslmode=disable"
 export PURROS_SECRET="$(openssl rand -base64 32)"
 export PURROS_URL="http://localhost:8080"
+export PURROS_STATE_DIR=../state   # uploaded files and backups go to the repo's state/ (git-ignored)
 
 go run ./cmd/purros setup --company "Dev Co" --owner-email dev@example.com --timezone America/Chicago
 go run ./cmd/purros locations create --name "Store 101" --external-id 101 --timezone America/Chicago --cutoff 04:00
@@ -70,19 +73,27 @@ Before opening a pull request, `gofmt -l .` must print nothing and `go vet` and 
 api/
   cmd/purros/              main: hands off to internal/cli
   internal/
-    cli/                   subcommands (serve, worker, migrate, setup, locations, integrations, features, doctor)
-    config/                environment variables
-    db/                    connection pool, transactions, migrations/ (SQL, embedded)
-    httpx/                 the HTTP framework: router, auth, errors, validation, pagination,
-                           idempotency, rate limits, batch helpers, OpenAPI generation
+    cli/                   every `purros` subcommand (see docs/operations/cli.md)
+    config/                environment variables, config and state directories
+    db/                    connection pool, transactions, advisory locks, migrations/ (SQL, embedded)
+    httpx/                 the HTTP framework: router, auth, reach checks, errors, validation,
+                           pagination, idempotency, rate limits, batch helpers, OpenAPI generation
     features/              feature registry and switches
-    catalog/               permissions, scopes and webhook events, each tied to a feature
+    catalog/               permissions, scopes and webhook events (each tied to a feature),
+                           and the route → permission and reach tables
     events/                audit log and transactional outbox
     webhooks/              outbox dispatcher and signed delivery worker
-    modules/<feature>/     one package per feature, exporting Routes()
+    crud/                  generic list/get/create/update/archive resources
+    ingest/, refs/         batch ingestion; references by ID, SKU, barcode or external ID
+    auth/, secure/         Argon2id and TOTP; encryption and signing with PURROS_SECRET
+    mail/, storage/        email queue and SMTP; local and S3 file storage
+    backup/, pdf/, ids/    backups and restore; invoice PDFs; prefixed IDs
+    modules/<area>/        one package per area, exporting Routes()
     server/                wiring, health checks, API integration tests
     testutil/              fresh-database test harness
 ```
+
+Runtime files stay out of the source tree: configuration lives in `config/` and uploaded files and backups in `state/` (both git-ignored). With the exports above, local runs write to the repository's `state/`.
 
 ## Rules to follow
 
@@ -101,9 +112,10 @@ api/
 1. Add the feature (and any sub-features) to `internal/features/features.go`, and its permissions, scopes and events to `internal/catalog/catalog.go`. The `TestCatalogsReferenceRealFeatures` test keeps these consistent.
 2. Add a migration in `internal/db/migrations/` (`000NN_name.sql` with `-- +goose Up` / `-- +goose Down`). Follow the conventions: prefixed text IDs, `external_id` where syncable, `created_at`/`updated_at`, `numeric` for money and quantities, and a `version` column on mutable records.
 3. Create `internal/modules/<feature>/` with the types, SQL and `Routes()`, and register it in `internal/server/server.go`.
-4. Add a prefix to `internal/ids` for new entity types.
-5. Write integration tests in `internal/server/` using `testutil.New`. Include a test showing the feature is unreachable when disabled.
-6. Document it: the guide in `docs/guides/`, endpoints in `docs/api/endpoints.md`, and events in `docs/api/webhooks.md`.
+4. Map every new route to a permission in `internal/catalog/routes.go` (and, for reach-limited permissions, how to find its location or employee in `internal/catalog/reach.go`). The server refuses to start while a route is unmapped.
+5. Add a prefix to `internal/ids` for new entity types.
+6. Write integration tests in `internal/server/` using `testutil.New`. Include a test showing the feature is unreachable when disabled.
+7. Document it: the guide in `docs/guides/`, endpoints in `docs/api/endpoints.md`, and events in `docs/api/webhooks.md`.
 
 ## Documentation
 
@@ -113,5 +125,5 @@ Docs live in `docs/` as Markdown. Update them in the same pull request as the ch
 
 - Small, focused pull requests that explain what changed and why.
 - Link the issue being fixed.
-- Include screenshots for UI changes.
+- Include screenshots for UI changes (once `web/` exists).
 - Contributions are accepted under the project's AGPL-3.0 license.

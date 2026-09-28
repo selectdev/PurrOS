@@ -25,7 +25,7 @@ var validate = func() *validator.Validate {
 	})
 	// Decimals: "dpos" = greater than zero, "dnonneg" = zero or more.
 	v.RegisterCustomTypeFunc(func(field reflect.Value) any {
-		if d, ok := field.Interface().(decimal.Decimal); ok {
+		if d, ok := reflect.TypeAssert[decimal.Decimal](field); ok {
 			return d.String()
 		}
 		return nil

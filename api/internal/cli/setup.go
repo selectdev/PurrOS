@@ -11,7 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/selectdev/purros/api/internal/auth"
 	"github.com/selectdev/purros/api/internal/events"
+	"github.com/selectdev/purros/api/internal/httpx"
 	"github.com/selectdev/purros/api/internal/ids"
+	"github.com/selectdev/purros/api/internal/modules/organization"
 )
 
 type SetupInput struct {
@@ -76,33 +78,52 @@ type LocationInput struct {
 	Cutoff     string // "HH:MM"
 }
 
-// CreateLocation adds a location (the web UI will do this later).
+// CreateLocation adds a location, records it in the audit log and emits
+// location.created, like POST /locations.
 func CreateLocation(ctx context.Context, pool *pgxpool.Pool, in LocationInput) (string, error) {
 	if in.Name == "" {
 		return "", errors.New("--name is required")
 	}
-	if _, err := time.LoadLocation(in.Timezone); err != nil {
-		return "", fmt.Errorf("unknown timezone %q", in.Timezone)
+	api := organization.LocationInput{Name: in.Name, Timezone: in.Timezone, Currency: in.Currency, BusinessDayCutoff: in.Cutoff}
+	if in.Code != "" {
+		api.Code = &in.Code
 	}
-	cutoff, err := time.Parse("15:04", in.Cutoff)
-	if err != nil {
-		return "", fmt.Errorf("--cutoff must be HH:MM")
+	if in.ExternalID != "" {
+		api.ExternalID = &in.ExternalID
 	}
-	id := ids.New(ids.Location)
-	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			INSERT INTO locations (id, name, code, external_id, timezone, currency, business_day_cutoff)
-			VALUES ($1, $2, nullif($3, ''), nullif($4, ''), $5, $6, make_interval(hours => $7, mins => $8))`,
-			id, in.Name, in.Code, in.ExternalID, in.Timezone, in.Currency, cutoff.Hour(), cutoff.Minute())
-		if err != nil {
+	var loc organization.Location
+	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) (err error) {
+		if loc, err = organization.InsertLocation(ctx, tx, api); err != nil {
 			return err
 		}
-		return events.Audit(ctx, tx, events.AuditEntry{
-			Actor: events.Actor{Type: "system", Name: "cli"}, Action: "location.create",
-			EntityType: "location", EntityID: id, After: map[string]any{"name": in.Name, "externalId": in.ExternalID},
+		if err := events.Audit(ctx, tx, events.AuditEntry{
+			Actor: cliActor, Action: "location.create", EntityType: "location", EntityID: loc.ID, After: loc,
+		}); err != nil {
+			return err
+		}
+		_, err = events.Emit(ctx, tx, events.Event{
+			Type: "location.created", Feature: "core", LocationID: loc.ID,
+			OrderingKey: "location:" + loc.ID, Actor: cliActor, Object: loc,
 		})
+		return err
 	})
-	return id, err
+	return loc.ID, problemText(err)
+}
+
+// problemText turns an API problem into a plain CLI error ("timezone: Unknown time zone…").
+func problemText(err error) error {
+	p, ok := errors.AsType[*httpx.Problem](err)
+	if !ok {
+		return err
+	}
+	if len(p.Errors) == 0 {
+		return errors.New(p.Error())
+	}
+	msgs := make([]string, len(p.Errors))
+	for i, fe := range p.Errors {
+		msgs[i] = fe.Path + ": " + fe.Message
+	}
+	return errors.New(strings.Join(msgs, "; "))
 }
 
 // SignInLink issues a single-use link for a user: an invitation for accounts

@@ -20,21 +20,32 @@ Any Linux server or VM works. PurrOS also runs on macOS and Windows with Docker 
 git clone https://github.com/selectdev/PurrOS.git
 cd PurrOS
 git checkout <latest release tag>
-cp .env.example .env
+cp config/purros.env.example config/purros.env
+cp config/postgres.env.example config/postgres.env
+chmod 600 config/*.env
 ```
 
 Always install from a release tag rather than the default branch.
 
 ## 2. Configure
 
-Edit `.env`. These values are required:
+Configuration lives in the `config/` directory, which is never committed:
+
+| File | Read by | Holds |
+|---|---|---|
+| `config/purros.env` | the `api` container | every PurrOS setting |
+| `config/postgres.env` | the `db` container | the database user and password |
+
+If you already have the `purros` binary, `purros init --url https://erp.example.com` writes both files with generated secrets. Otherwise edit the copies. These values are required:
 
 ```dotenv
+# config/purros.env
 PURROS_URL=https://erp.example.com
 PURROS_SECRET=            # openssl rand -base64 32, or: purros secret generate
-DATABASE_URL=postgresql://purros:CHANGE_ME@db:5432/purros
-REDIS_URL=redis://redis:6379
-POSTGRES_PASSWORD=CHANGE_ME
+DATABASE_URL=postgres://purros:CHANGE_ME@db:5432/purros?sslmode=disable
+
+# config/postgres.env
+POSTGRES_PASSWORD=CHANGE_ME   # the same password as in DATABASE_URL
 ```
 
 `PURROS_SECRET` encrypts stored secrets and signs sessions. **Keep a copy of it somewhere safe.** If you lose it, encrypted data such as integration secrets and sensitive employee fields cannot be recovered.
@@ -69,7 +80,7 @@ docker compose exec api purros doctor
 
 `setup` asks for the company, the first **Owner** and, optionally, the first location. It then prints a one-time link for the Owner to set a password. For scripted installs, pass the values as flags (see the [CLI reference](../operations/cli.md#setup)). Until the web app ships, locations and integrations are managed with the [CLI](../operations/cli.md).
 
-The Compose file backs up the database every night into the `backups` volume. See [Backups & upgrades](../operations/backups-and-upgrades.md) to copy backups off the server, encrypt them and restore them.
+Everything PurrOS writes (uploaded files and nightly backups) lives in `/var/lib/purros` inside the container, on the `state` volume. Backups go to `/var/lib/purros/backups` every night. See [Backups & upgrades](../operations/backups-and-upgrades.md) to copy backups off the server, encrypt them and restore them.
 
 ## 4. Put a reverse proxy in front
 
@@ -110,12 +121,12 @@ Register an integration for your POS, online store or timeclock with `purros int
 
 | Service | Purpose | Persistent data |
 |---|---|---|
-| `api` | The `purros` binary: `/api/v1`, health checks, and the background worker (webhook delivery and other jobs) | None |
+| `api` | The `purros` binary: `/api/v1`, health checks, and the background worker (webhooks, email, KPI alerts, nightly backups) | **Yes**: the `state` volume (`/var/lib/purros`) holds uploaded files and backups |
 | `db` | PostgreSQL 16: all data and the job queue | **Yes: back this up** |
 | `redis` | Optional (`docker compose --profile redis up -d`): shared rate limits across several `api` containers | No |
 | `web` | Next.js web UI, Employee Area, kiosk timeclock, team displays (planned) | None |
 
-Files (documents, photos, receipts, payslips, exports) are stored in a Docker volume by default, or in S3-compatible storage, which is recommended for production and required when running more than one `api` container. See [Email & file storage](email-and-storage.md#file-storage-s3).
+Uploaded files are stored in the `state` volume by default, or in S3-compatible storage, which is recommended for production and required when running more than one `api` container. See [Email & file storage](email-and-storage.md#file-storage-s3).
 
 ## Scaling
 

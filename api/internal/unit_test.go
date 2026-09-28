@@ -140,12 +140,47 @@ func TestTOTPAndPasswords(t *testing.T) {
 	if ok, _ := auth.VerifyPassword(h, "wrong"); ok {
 		t.Fatal("wrong password accepted")
 	}
-	if auth.HashPassword("x") == auth.HashPassword("x") {
+	if a, b := auth.HashPassword("x"), auth.HashPassword("x"); a == b {
 		t.Fatal("hashes must be salted")
 	}
 	for pw, bad := range map[string]bool{"short": true, "password123": true, "a@b.co": true, "a perfectly fine one": false} {
 		if got := auth.CheckPasswordPolicy(pw, "a@b.co") != ""; got != bad {
 			t.Errorf("policy(%q) = %v, want %v", pw, got, bad)
+		}
+	}
+}
+
+func TestScopesCoverEvent(t *testing.T) {
+	cases := []struct {
+		scopes []string
+		event  string
+		want   bool
+	}{
+		{[]string{"people:read"}, "employee.created", true},
+		{[]string{"people:write"}, "document.expiring", true},
+		{[]string{"time:write"}, "employee.created", false},
+		{[]string{"communication:read"}, "recognition.posted", true}, // displays events come with communication scopes
+		{[]string{"cash:read"}, "cash.deposit_mismatch", true},
+		{[]string{"sales:write"}, "cash.deposit_mismatch", false},
+		{[]string{"organization:read"}, "location.created", true},
+		{[]string{"people:read"}, "location.created", false},
+		{[]string{"attachments:read"}, "attachment.uploaded", true},
+		{[]string{"organization:read"}, "attachment.uploaded", false},
+		{[]string{"people:read"}, "no.such_event", false},
+	}
+	for _, c := range cases {
+		if got := catalog.ScopesCoverEvent(c.scopes, c.event); got != c.want {
+			t.Errorf("ScopesCoverEvent(%v, %s) = %v, want %v", c.scopes, c.event, got, c.want)
+		}
+	}
+	// Every event is receivable with some scope.
+	var all []string
+	for _, s := range catalog.Scopes {
+		all = append(all, s.Key)
+	}
+	for e := range catalog.Events {
+		if !catalog.ScopesCoverEvent(all, e) {
+			t.Errorf("no scope covers event %s", e)
 		}
 	}
 }

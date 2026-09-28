@@ -4,7 +4,6 @@ package ids
 
 import (
 	"crypto/rand"
-	"strings"
 	"sync"
 	"time"
 
@@ -47,11 +46,6 @@ func New(prefix string) string {
 	id := ulid.MustNew(ulid.Timestamp(time.Now()), entropy)
 	mu.Unlock()
 	return prefix + "_" + id.String()
-}
-
-// HasPrefix reports whether id looks like an ID of the given type.
-func HasPrefix(id, prefix string) bool {
-	return strings.HasPrefix(id, prefix+"_")
 }
 
 // Prefixes for module entities.

@@ -2,6 +2,8 @@
 
 Feature key: `equipment`.
 
+> **Status:** The API covers the asset register, meter readings, preventive maintenance that opens work orders, and repair work orders. QR labels and the screens are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Keep track of your equipment, maintain it before it breaks, and get repairs done quickly.
 
 ## Asset register

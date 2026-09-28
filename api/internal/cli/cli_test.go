@@ -28,6 +28,9 @@ func run(t *testing.T, dbURL, stdin string, args ...string) (string, string, int
 		t.Setenv("PURROS_SECRET", testutil.TestSecret)
 	}
 	t.Setenv("PURROS_URL", "https://erp.example.com")
+	if os.Getenv("PURROS_STATE_DIR") == "" {
+		t.Setenv("PURROS_STATE_DIR", t.TempDir())
+	}
 	var out, errOut bytes.Buffer
 	code := cli.RunWith(args, strings.NewReader(stdin), &out, &errOut)
 	return out.String(), errOut.String(), code
@@ -183,7 +186,7 @@ func TestBackupRestoreCommands(t *testing.T) {
 }
 
 func TestSecretRotation(t *testing.T) {
-	env := testutil.New(t, []string{"organization:read"}, []string{"employee.created"}) // registers a webhook secret
+	env := testutil.New(t, []string{"organization:read", "people:read"}, []string{"employee.created"}) // registers a webhook secret
 	u := env.DatabaseURL
 	mustRun(t, u, "", "secret", "check")
 	newSecret := strings.Repeat("n", 40)
@@ -238,27 +241,34 @@ func TestInitAndEnvFile(t *testing.T) {
 	if !strings.Contains(out, "Wrote") {
 		t.Fatal(out)
 	}
-	path := filepath.Join(dir, ".env")
-	st, _ := os.Stat(path)
-	if st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", st.Mode())
+	path, dbPath := filepath.Join(dir, "purros.env"), filepath.Join(dir, "postgres.env")
+	for _, p := range []string{path, dbPath} {
+		if st, err := os.Stat(p); err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("%s: %v %v", p, err, st)
+		}
 	}
 	first, _ := os.ReadFile(path)
 	if _, _, code := run(t, "", "", "init", "--dir", dir); code == 0 {
-		t.Fatal("init overwrote .env without --force")
+		t.Fatal("init overwrote purros.env without --force")
 	}
 	mustRun(t, "", "", "init", "--dir", dir, "--force", "--url", "https://other.example.com")
 	second, _ := os.ReadFile(path)
-	secret := func(b []byte) string {
-		for _, l := range strings.Split(string(b), "\n") {
-			if strings.HasPrefix(l, "PURROS_SECRET=") {
-				return l
+	dbEnv, _ := os.ReadFile(dbPath)
+	line := func(b []byte, prefix string) string {
+		for l := range strings.SplitSeq(string(b), "\n") {
+			if after, ok := strings.CutPrefix(l, prefix); ok {
+				return after
 			}
 		}
 		return ""
 	}
-	if secret(first) == "" || secret(first) != secret(second) || !strings.Contains(string(second), "other.example.com") {
+	if line(first, "PURROS_SECRET=") == "" || line(first, "PURROS_SECRET=") != line(second, "PURROS_SECRET=") ||
+		!strings.Contains(string(second), "other.example.com") {
 		t.Fatal("init --force must keep the secret")
+	}
+	if pw := line(dbEnv, "POSTGRES_PASSWORD="); pw == "" || line(first, "DATABASE_URL=") != line(second, "DATABASE_URL=") ||
+		!strings.Contains(line(second, "DATABASE_URL="), ":"+pw+"@db:") {
+		t.Fatalf("DATABASE_URL must use the kept POSTGRES_PASSWORD:\n%s\n%s", second, dbEnv)
 	}
 	// --env-file loads values without overriding the environment.
 	t.Setenv("PURROS_URL", "")
@@ -280,6 +290,22 @@ func TestInitAndEnvFile(t *testing.T) {
 	os.Unsetenv("PURROS_BACKUP_DIR")
 	os.Unsetenv("SMTP_FROM")
 	os.Unsetenv("LOG_LEVEL")
+
+	// Without --env-file, $PURROS_CONFIG_DIR/purros.env is loaded, and the
+	// state directory drives the default storage path.
+	_ = os.WriteFile(path, []byte("PURROS_STATE_DIR=/srv/purros\n"), 0o600)
+	t.Setenv("PURROS_CONFIG_DIR", dir)
+	os.Unsetenv("PURROS_STATE_DIR")
+	outBuf.Reset()
+	if code := cli.RunWith([]string{"--json", "config", "show"}, strings.NewReader(""), &outBuf, &errBuf); code != 0 {
+		t.Fatalf("config show: %s", errBuf.String())
+	}
+	cfg = nil
+	_ = json.Unmarshal(outBuf.Bytes(), &cfg)
+	os.Unsetenv("PURROS_STATE_DIR")
+	if cfg["PURROS_STATE_DIR"] != "/srv/purros" || cfg["STORAGE_LOCAL_PATH"] != "/srv/purros/files" {
+		t.Fatalf("config: %v", cfg)
+	}
 }
 
 func TestBackupS3AndStorageCommands(t *testing.T) {
@@ -363,5 +389,84 @@ func TestStorageMigrate(t *testing.T) {
 	t.Setenv("STORAGE_DRIVER", "s3")
 	if out := mustRun(t, env.DatabaseURL, "", "storage", "verify", "--checksums"); !strings.Contains(out, "0 problem(s)") {
 		t.Fatal(out)
+	}
+}
+
+func TestIntegrationAndWebhookCommands(t *testing.T) {
+	env := testutil.New(t, []string{"organization:read"}, nil)
+	u := env.DatabaseURL
+	dir := t.TempDir()
+	path := filepath.Join(dir, "purros-integration.json")
+	write := func(m string) {
+		if err := os.WriteFile(path, []byte(m), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"name": "timeclock-bridge", "version": "1.0.0", "scopes": ["time:write", "people:read"],
+		"webhooks": {"url": "https://example.com/hooks", "events": ["employee.created"]},
+		"config": [{"key": "token", "type": "secret", "required": true}, {"key": "every", "type": "number"}]}`)
+
+	if _, errOut, code := run(t, u, "", "integrations", "register", "--manifest", path); code == 0 || !strings.Contains(errOut, `"token" is required`) {
+		t.Fatalf("missing config: %s", errOut)
+	}
+	out := mustRun(t, u, "", "--json", "integrations", "register", "--manifest", path, "--config", "token=abc", "--config", "every=5")
+	var reg struct {
+		APIKey      string `json:"apiKey"`
+		Integration struct {
+			ID string `json:"id"`
+		} `json:"integration"`
+	}
+	if err := json.Unmarshal([]byte(out), &reg); err != nil || !strings.HasPrefix(reg.APIKey, "pk_live_") {
+		t.Fatalf("register: %s", out)
+	}
+	env.DoWithKey(reg.APIKey, "GET", "/api/v1/integrations/self", nil).Expect(t, 200)
+	if cfg := env.DoWithKey(reg.APIKey, "GET", "/api/v1/integrations/self/config", nil).Expect(t, 200); cfg.Get("every") != 5.0 {
+		t.Fatalf("CLI config values are converted to the declared type: %s", cfg.Raw)
+	}
+
+	write(`{"name": "timeclock-bridge", "version": "1.1.0", "scopes": ["time:write", "people:read"],
+		"config": [{"key": "token", "type": "secret", "required": true}]}`)
+	mustRun(t, u, "", "integrations", "update", "timeclock-bridge", "--manifest", path)
+	if out := mustRun(t, u, "", "webhooks", "list"); strings.Contains(out, "example.com") {
+		t.Fatalf("removing webhooks from the manifest removes the endpoint: %s", out)
+	}
+
+	out = mustRun(t, u, "", "--json", "integrations", "rotate-key", "timeclock-bridge", "--grace", "0")
+	var rot struct {
+		APIKey string `json:"apiKey"`
+	}
+	_ = json.Unmarshal([]byte(out), &rot)
+	env.DoWithKey(reg.APIKey, "GET", "/api/v1/integrations/self", nil).Expect(t, 401)
+	env.DoWithKey(rot.APIKey, "GET", "/api/v1/integrations/self", nil).Expect(t, 200)
+
+	mustRun(t, u, "", "integrations", "pause", "timeclock-bridge")
+	env.DoWithKey(rot.APIKey, "GET", "/api/v1/integrations/self", nil).Expect(t, 401)
+	mustRun(t, u, "", "integrations", "resume", "timeclock-bridge")
+	if _, _, code := run(t, u, "", "integrations", "remove", "timeclock-bridge", "--no-input"); code == 0 {
+		t.Fatal("remove must be confirmed")
+	}
+	mustRun(t, u, "", "--yes", "integrations", "remove", "timeclock-bridge")
+	env.DoWithKey(rot.APIKey, "GET", "/api/v1/integrations/self", nil).Expect(t, 401)
+	if _, errOut, code := run(t, u, "", "integrations", "pause", "timeclock-bridge"); code == 0 || !strings.Contains(errOut, "no integration") {
+		t.Fatalf("pause removed: %s", errOut)
+	}
+
+	// Webhook endpoints: re-enable and replay.
+	var epID string
+	if err := env.Pool.QueryRow(context.Background(), `INSERT INTO webhook_endpoints (id, url, secret_encrypted, events, status)
+		VALUES ('whe_cli', 'https://example.com/x', '\x00', '{employee.created}', 'disabled') RETURNING id`).Scan(&epID); err != nil {
+		t.Fatal(err)
+	}
+	if out := mustRun(t, u, "", "webhooks", "list"); !strings.Contains(out, "whe_cli") || !strings.Contains(out, "disabled") {
+		t.Fatalf("list: %s", out)
+	}
+	mustRun(t, u, "", "webhooks", "enable", epID)
+	var status string
+	_ = env.Pool.QueryRow(context.Background(), `SELECT status FROM webhook_endpoints WHERE id = $1`, epID).Scan(&status)
+	if status != "active" {
+		t.Fatalf("enable: %s", status)
+	}
+	if out := mustRun(t, u, "", "--json", "webhooks", "retry-failed", epID); !strings.Contains(out, `"queued": 0`) {
+		t.Fatalf("retry-failed: %s", out)
 	}
 }

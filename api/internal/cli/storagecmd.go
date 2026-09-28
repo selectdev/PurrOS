@@ -85,7 +85,7 @@ func (a *app) storageCmd() *cobra.Command {
 		Long: `Copy every uploaded file from the current storage (STORAGE_DRIVER) to the other
 one, checking each file's SHA-256. It can be stopped and run again: files
 already copied are skipped. Afterwards, switch STORAGE_DRIVER and restart.`,
-		Example: `  # .env: keep STORAGE_DRIVER=local, add the STORAGE_S3_* settings
+		Example: `  # config/purros.env: keep STORAGE_DRIVER=local, add the STORAGE_S3_* settings
   purros storage migrate --to s3
   # then set STORAGE_DRIVER=s3 and restart PurrOS`,
 		Args: cobra.NoArgs,

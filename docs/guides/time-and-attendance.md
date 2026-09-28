@@ -2,6 +2,8 @@
 
 Feature key: `time`. Needs People & HR.
 
+> **Status:** The API covers punch batches, punch corrections, labor rule sets, timesheets with overtime, pay periods (lock, CSV export) and time off. The kiosk timeclock, schedule-aware punching, break attestation and the screens are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Record hours accurately, apply your labor rules, get timesheets approved, and hand clean hours to payroll.
 
 ## Where punches come from
@@ -97,4 +99,4 @@ Hours are broken down by employee, earning code (regular, overtime, holiday, pre
 | `GET/POST /api/v1/time-off/requests`, `GET /api/v1/time-off/balances` | `time:read` / `time:write` |
 | `GET /api/v1/punch-corrections`, `POST /api/v1/punch-corrections/{id}:approve`, `:reject` | `time:read` / `time:write` |
 
-Events: `punch.received`, `punch.corrected`, `punch.exception`, `timesheet.approved`, `timesheet.rejected`, `pay_period.locked`, `time_off.requested`, `time_off.approved`, `time_off.rejected`.
+Events: `punch.received`, `punch.corrected`, `punch.exception` *(planned)*, `timesheet.approved`, `timesheet.rejected`, `pay_period.locked`, `time_off.requested`, `time_off.approved`, `time_off.rejected`.

@@ -9,9 +9,9 @@ The terms used throughout PurrOS and its documentation.
 | **Company** | The business using PurrOS. One install serves one company. |
 | **Hierarchy** | How the company is organized, e.g. company → region → district → location. You choose the levels and their names. |
 | **Org unit** | Any node in the hierarchy above a location, such as a region or a district. |
-| **Location** | A place where work happens: a store, branch, site, clinic, warehouse or office. You can rename the term. |
+| **Location** | A place where work happens: a store, branch, site, clinic, warehouse or office. Renaming the term is planned. |
 | **Department** | A work area within locations, e.g. Kitchen, Front desk, Warehouse, Service. |
-| **Inherited setting** | A setting defined at company or org-unit level that locations use unless they override it. |
+| **Inherited setting** *(planned)* | A setting defined at company or org-unit level that locations use unless they override it. |
 
 ## People and access
 
@@ -29,7 +29,7 @@ The terms used throughout PurrOS and its documentation.
 
 | Term | Meaning |
 |---|---|
-| **Feature** | A part of PurrOS that can be switched on or off, such as Cash Management or the kiosk timeclock. |
+| **Feature** | A part of PurrOS that can be switched on or off, such as Cash Management or shift swaps. |
 | **Platform core** | The always-on parts: accounts, roles, locations, settings, audit log, API. |
 
 ## Time and scheduling
@@ -67,3 +67,10 @@ The terms used throughout PurrOS and its documentation.
 | **External ID** | The ID a record has in another system. PurrOS stores it so integrations can find and update records without keeping their own mapping. |
 | **Source** | A label for where ingested data came from, e.g. `pos:front-counter` or `web-store`. |
 | **Webhook** | A message PurrOS sends to another system when something happens. |
+
+## Files on the server
+
+| Term | Meaning |
+|---|---|
+| **Config directory** | `config/` (`PURROS_CONFIG_DIR`): `purros.env` with PurrOS's settings and secrets, and `postgres.env` for the database container. |
+| **State directory** | `state/` locally, `/var/lib/purros` in Docker (`PURROS_STATE_DIR`): uploaded files and backups. |

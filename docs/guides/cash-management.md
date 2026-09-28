@@ -2,6 +2,8 @@
 
 Feature key: `cash`. Needs Sales, so PurrOS knows how much money to expect.
 
+> **Status:** The API records tenders, card settlements, bank transactions, drawer counts with over/short, deposits with matching, and business-day close. Paid-outs and petty cash, blind counts, two-person verification and the guided screens are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Follow every cash and card payment from the register to the bank, spot shortages the same day, and keep a full audit trail.
 
 ## The register-to-bank workflow

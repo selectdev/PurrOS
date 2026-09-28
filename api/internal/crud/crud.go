@@ -61,6 +61,9 @@ type Resource[Out any, In any] struct {
 	Check func(c *httpx.Ctx, q db.Querier, in *In, before *Out) error
 	// AfterWrite runs inside the transaction after an insert (before == nil) or update.
 	AfterWrite func(c *httpx.Ctx, tx pgx.Tx, before, after *Out) error
+	// BeforeArchive runs inside the transaction before a record is archived,
+	// e.g. to refuse while other records still depend on it.
+	BeforeArchive func(c *httpx.Ctx, tx pgx.Tx, o *Out) error
 	// LocationOf returns the location to attach to events.
 	LocationOf func(o *Out) string
 
@@ -385,17 +388,17 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	if strings.ContainsRune("aeiou", rune(name[0])) {
 		aName = "an " + name
 	}
-	listDesc := ""
+	var listDesc strings.Builder
 	var filterNames []string
 	recordReach := r.LocationOf != nil
 	for _, f := range r.Filters {
 		filterNames = append(filterNames, f.Query)
-		listDesc += fmt.Sprintf("`%s` filters by %s. ", f.Query, strings.ReplaceAll(f.Column, "_", " "))
+		fmt.Fprintf(&listDesc, "`%s` filters by %s. ", f.Query, strings.ReplaceAll(f.Column, "_", " "))
 	}
 	if !r.NoList {
 		routes = append(routes, httpx.Route{
 			Method: "GET", Path: r.Path, Tag: r.Tag, Feature: r.Feature, Scope: r.ReadScope,
-			Summary: "List " + name + "s", Description: strings.TrimSpace(listDesc),
+			Summary: "List " + name + "s", Description: strings.TrimSpace(listDesc.String()),
 			Query: listQuery{}, Response: httpx.Page[Out]{}, Filters: filterNames,
 			Handler: func(c *httpx.Ctx) (any, error) {
 				lp, err := c.ParseList()
@@ -544,6 +547,11 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 					if err != nil {
 						return err
 					}
+					if r.BeforeArchive != nil {
+						if err := r.BeforeArchive(c, tx, &before); err != nil {
+							return err
+						}
+					}
 					sets := "archived_at = coalesce(archived_at, now())"
 					if r.hasUpdatedAt {
 						sets += ", updated_at = now()"
@@ -560,9 +568,6 @@ func (r *Resource[Out, In]) Routes() []httpx.Route {
 	}
 	return routes
 }
-
-// Ptr returns a pointer to v.
-func Ptr[T any](v T) *T { return &v }
 
 // Now is overridable in tests.
 var Now = time.Now

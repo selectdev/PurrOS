@@ -2,6 +2,8 @@
 
 Feature key: `sales`.
 
+> **Status:** The API covers POS transaction and summary feeds, the unmapped-items queue, customers, sales orders (reserve, ship, cancel) and invoices (PDF, pay, void). Price lists, quotes and the screens are planned. Screens described below arrive with the web app; until then, use the endpoints listed at the end of this page.
+
 Sales has two parts. You can use either one, or both.
 
 1. **Sales feeds** (`sales.feeds`): sales from your POS systems, online stores and delivery platforms come in through the API. They drive forecasting, cash, inventory usage and reports.

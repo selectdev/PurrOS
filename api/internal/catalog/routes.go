@@ -12,6 +12,14 @@ var RoutePermissions = map[string]string{
 	// Organization
 	"GET /org-units": anyone, "GET /locations": anyone, "GET /locations/{id}": anyone,
 	"GET /locations/external/{externalId}": anyone, "GET /departments": anyone,
+	"POST /locations": "organization.manage", "PATCH /locations/{id}": "organization.manage",
+	"PUT /locations/external/{externalId}": "organization.manage", "DELETE /locations/{id}": "organization.manage",
+	"GET /org-units/{id}": anyone, "GET /org-units/external/{externalId}": anyone,
+	"POST /org-units": "organization.manage", "PATCH /org-units/{id}": "organization.manage",
+	"PUT /org-units/external/{externalId}": "organization.manage", "DELETE /org-units/{id}": "organization.manage",
+	"GET /departments/{id}": anyone, "GET /departments/external/{externalId}": anyone,
+	"POST /departments": "organization.manage", "PATCH /departments/{id}": "organization.manage",
+	"PUT /departments/external/{externalId}": "organization.manage", "DELETE /departments/{id}": "organization.manage",
 	"GET /roles": "users.read", "GET /users": "users.read",
 
 	// People & HR

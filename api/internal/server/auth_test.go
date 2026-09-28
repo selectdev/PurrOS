@@ -21,11 +21,11 @@ var tokenRe = regexp.MustCompile(`token=([A-Za-z0-9]+)`)
 func lastToken(t *testing.T, env *testutil.Env, kind string) string {
 	t.Helper()
 	emails := env.Emails()
-	for i := len(emails) - 1; i >= 0; i-- {
-		if emails[i]["kind"] == kind {
-			m := tokenRe.FindStringSubmatch(emails[i]["body"])
+	for _, email := range slices.Backward(emails) {
+		if email["kind"] == kind {
+			m := tokenRe.FindStringSubmatch(email["body"])
 			if m == nil {
-				t.Fatalf("no token in %s email: %s", kind, emails[i]["body"])
+				t.Fatalf("no token in %s email: %s", kind, email["body"])
 			}
 			return m[1]
 		}

@@ -24,6 +24,7 @@ import (
 	"github.com/selectdev/purros/api/internal/modules/employeearea"
 	"github.com/selectdev/purros/api/internal/modules/equipment"
 	"github.com/selectdev/purros/api/internal/modules/insights"
+	"github.com/selectdev/purros/api/internal/modules/integrations"
 	"github.com/selectdev/purros/api/internal/modules/inventory"
 	"github.com/selectdev/purros/api/internal/modules/operations"
 	"github.com/selectdev/purros/api/internal/modules/organization"
@@ -78,6 +79,7 @@ func NewApp(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger) (*httpx.App
 	router.Add(equipment.Routes()...)
 	router.Add(communication.Routes()...)
 	router.Add(insights.Routes()...)
+	router.Add(integrations.Routes()...)
 	router.SetReach(catalog.RouteReachQuery)
 	if missing := router.SetPermissions(catalog.RoutePermission); len(missing) > 0 {
 		return nil, fmt.Errorf("routes without a permission: %v", missing)

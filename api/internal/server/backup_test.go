@@ -234,8 +234,7 @@ func TestBackupWithFilesAndS3(t *testing.T) {
 	bad.Bucket = "missing-bucket"
 	badRemote, _ := storage.NewS3(bad)
 	_, err = backup.Run(ctx, src.Pool, backup.RunOptions{Kind: backup.KindManual, Dir: dir, Remote: badRemote})
-	var upErr *backup.UploadError
-	if !errors.As(err, &upErr) {
+	if _, ok := errors.AsType[*backup.UploadError](err); !ok {
 		t.Fatalf("expected an upload error, got %v", err)
 	}
 	runs, _ = backup.Last(ctx, src.Pool, 1)

@@ -1,6 +1,6 @@
 # Endpoint index
 
-All paths are relative to `/api/v1`. This index is generated from the API's route table. The full request and response schemas are in the OpenAPI spec at `/api/v1/openapi.json` (it lists only enabled features), or the interactive docs at `/docs/api`.
+All paths are relative to `/api/v1`. This index follows the API's route table (`api/internal/catalog/routes.go`). The full request and response schemas are in the OpenAPI spec at `/api/v1/openapi.json` (it lists only enabled features).
 
 Endpoints of switched-off features return `404 feature_disabled`. The **Feature** column is the feature switch each endpoint belongs to.
 
@@ -77,7 +77,25 @@ Conventions used throughout:
 | `GET /integrations/self` | integration key | — | — | The calling integration's registration |
 | `GET /integrations/self/config` | integration key | — | — | Config values entered by the admin |
 | `POST /integrations/self/health` | integration key | — | — | Send a heartbeat and status message |
-| `POST /integrations/self/logs` | integration key | — | — | Add a log message shown in the admin UI |
+| `POST /integrations/self/logs` | integration key | — | — | Add a log message to the integration's log |
+
+## Integrations
+
+Managing integrations. People only; see [Integrations](../integrations/README.md#managing-integrations).
+
+| Method & path | Integration key | People | Feature | Description |
+|---|---|---|---|---|
+| `GET /integrations` | — | `integrations.manage` (Everyone) | — | List integrations; `status` filters |
+| `POST /integrations` | — | `integrations.manage` (Everyone) | — | Register an integration from its manifest; returns its API key and webhook secret once |
+| `GET /integrations/{id}` | — | `integrations.manage` (Everyone) | — | An integration with its manifest, config (secrets masked), API keys and webhook endpoints |
+| `DELETE /integrations/{id}` | — | `integrations.manage` (Everyone) | — | Remove an integration with its keys, config, logs and webhook endpoint |
+| `PUT /integrations/{id}/manifest` | — | `integrations.manage` (Everyone) | — | Replace its manifest, e.g. for a new version |
+| `PATCH /integrations/{id}/config` | — | `integrations.manage` (Everyone) | — | Change config values (`null` removes one) |
+| `POST /integrations/{id}:pause` | — | `integrations.manage` (Everyone) | — | Pause it: its keys are refused and its webhooks wait |
+| `POST /integrations/{id}:resume` | — | `integrations.manage` (Everyone) | — | Resume it |
+| `POST /integrations/{id}:rotate-key` | — | `integrations.manage` (Everyone) | — | Issue a new API key; the old ones keep working for `graceMinutes` |
+| `GET /integrations/{id}/logs` | — | `integrations.manage` (Everyone) | — | Messages it logged; `level` and `from` filter |
+| `GET /integrations/{id}/batches` | — | `integrations.manage` (Everyone) | — | Ingestion batches it sent, with created, updated and rejected counts; `from` and `rejectedOnly` filter |
 
 ## Attachments
 
@@ -94,11 +112,27 @@ Conventions used throughout:
 
 | Method & path | Integration key | People | Feature | Description |
 |---|---|---|---|---|
-| `GET /departments` | `organization:read` | anyone | — | List departments |
-| `GET /locations` | `organization:read` | anyone | — | List locations |
-| `GET /locations/external/{externalId}` | `organization:read` | anyone | — | Get a location by external ID |
+| `GET /org-units` | `organization:read` | anyone | — | List org units (regions, districts…); `parentId` filters |
+| `POST /org-units` | `organization:write` | `organization.manage` (Everyone) | — | Create an org unit |
+| `GET /org-units/{id}` | `organization:read` | anyone | — | Get an org unit |
+| `PATCH /org-units/{id}` | `organization:write` | `organization.manage` (Everyone) | — | Update an org unit (e.g. move it under another parent) |
+| `DELETE /org-units/{id}` | `organization:write` | `organization.manage` (Everyone) | — | Archive an org unit (only once it contains no active units or locations) |
+| `GET /org-units/external/{externalId}` | `organization:read` | anyone | — | Get an org unit by external ID |
+| `PUT /org-units/external/{externalId}` | `organization:write` | `organization.manage` (Everyone) | — | Create or replace an org unit by external ID |
+| `GET /locations` | `organization:read` | anyone | — | List locations; `orgUnitId`, `status` and `includeArchived` filter |
+| `POST /locations` | `organization:write` | `organization.manage` (Everyone) | — | Create a location |
 | `GET /locations/{id}` | `organization:read` | anyone | — | Get a location |
-| `GET /org-units` | `organization:read` | anyone | — | List org units (regions, districts…) |
+| `PATCH /locations/{id}` | `organization:write` | `organization.manage` | — | Update a location's profile |
+| `DELETE /locations/{id}` | `organization:write` | `organization.manage` | — | Archive (close) a location; history is kept |
+| `GET /locations/external/{externalId}` | `organization:read` | anyone | — | Get a location by external ID |
+| `PUT /locations/external/{externalId}` | `organization:write` | `organization.manage` (Everyone) | — | Create or replace a location by external ID |
+| `GET /departments` | `organization:read` | anyone | — | List departments |
+| `POST /departments` | `organization:write` | `organization.manage` (Everyone) | — | Create a department |
+| `GET /departments/{id}` | `organization:read` | anyone | — | Get a department |
+| `PATCH /departments/{id}` | `organization:write` | `organization.manage` (Everyone) | — | Update a department |
+| `DELETE /departments/{id}` | `organization:write` | `organization.manage` (Everyone) | — | Archive a department |
+| `GET /departments/external/{externalId}` | `organization:read` | anyone | — | Get a department by external ID |
+| `PUT /departments/external/{externalId}` | `organization:write` | `organization.manage` (Everyone) | — | Create or replace a department by external ID |
 | `GET /roles` | `organization:read` | `users.read` | — | List roles and their permissions |
 | `GET /roles/{id}` | `organization:read` | `users.read` | — | Get a role |
 | `GET /users` | `organization:read` | `users.read` | — | List user accounts with their role and assignments |
@@ -431,4 +465,18 @@ Conventions used throughout:
 
 ## Webhooks
 
-Webhook endpoints are managed in the UI (**Settings → Webhooks**) or declared in an integration's manifest. See [Webhooks](webhooks.md).
+Webhook endpoints and their delivery log. People only. An integration's endpoint comes from its manifest; standalone endpoints are added here. See [Webhooks](webhooks.md).
+
+| Method & path | Integration key | People | Feature | Description |
+|---|---|---|---|---|
+| `GET /webhook-endpoints` | — | `webhooks.manage` (Everyone) | — | List endpoints; `integrationId` (or `none` for standalone) and `status` filter |
+| `POST /webhook-endpoints` | — | `webhooks.manage` (Everyone) | — | Add a standalone endpoint; returns its signing secret once |
+| `GET /webhook-endpoints/{id}` | — | `webhooks.manage` (Everyone) | — | Get an endpoint |
+| `PATCH /webhook-endpoints/{id}` | — | `webhooks.manage` (Everyone) | — | Change its URL, events or description, or disable and re-enable it |
+| `DELETE /webhook-endpoints/{id}` | — | `webhooks.manage` (Everyone) | — | Delete a standalone endpoint and its delivery log |
+| `POST /webhook-endpoints/{id}:rotate-secret` | — | `webhooks.manage` (Everyone) | — | New signing secret, returned once |
+| `POST /webhook-endpoints/{id}:ping` | — | `webhooks.manage` (Everyone) | — | Send a `webhook.ping` test event |
+| `POST /webhook-endpoints/{id}:retry-failed` | — | `webhooks.manage` (Everyone) | — | Queue every failed delivery again |
+| `GET /webhook-endpoints/{id}/deliveries` | — | `webhooks.manage` (Everyone) | — | Its deliveries; `status`, `eventType` and `from` filter |
+| `GET /webhook-deliveries/{id}` | — | `webhooks.manage` (Everyone) | — | A delivery with the event body exactly as sent |
+| `POST /webhook-deliveries/{id}:retry` | — | `webhooks.manage` (Everyone) | — | Send a delivery again |

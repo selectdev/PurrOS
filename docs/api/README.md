@@ -47,6 +47,7 @@ Integration keys are limited to the scopes they declared:
 | Scope | Covers |
 |---|---|
 | `organization:read` | Org units, locations, departments, roles, users (read-only) |
+| `organization:write` | Create, update and archive org units, locations and departments |
 | `attachments:read`, `attachments:write` | Upload, download and delete files ([Attachments](attachments.md)) |
 | `people:read`, `people:write` | Employees, documents, skills, onboarding |
 | `payroll:read`, `payroll:write` | Pay rates, pay period exports, payslips |
@@ -64,6 +65,8 @@ Integration keys are limited to the scopes they declared:
 | `notifications:deliver` | Receive `notification.requested` events to deliver SMS or chat messages |
 
 Sensitive employee fields are never returned to integration keys without the `people:sensitive` scope.
+
+Scopes also decide which [webhook events](webhooks.md#subscribing) an integration may subscribe to. Managing integrations and webhook endpoints (`/integrations`, `/webhook-endpoints`) is for people only (`integrations.manage`, `webhooks.manage`); an integration uses `/integrations/self` instead.
 
 ## Conventions
 

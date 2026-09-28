@@ -1,3 +1,5 @@
+# Configuration with secrets: only the examples are committed
+/config/*.env
 .env
 /api/purros
 /api/bin/

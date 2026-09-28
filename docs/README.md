@@ -1,6 +1,6 @@
 # PurrOS Documentation
 
-> **Status:** PurrOS is in early development. These docs describe the planned behavior of v1 and 1.x, and details may change before the first tagged release. The Go API server is being built first. See [api/README.md](../api/README.md) for what works today, and the [roadmap](../PRODUCT.md#9-roadmap) for what comes next.
+> **Status:** PurrOS is in early development and has no tagged release yet. The **API server and `purros` CLI work today** and cover every feature area; the **web app is not built yet**. Throughout these docs, anything marked *(planned)* isn't built, screens ("**Settings → …**") arrive with the web app, and each feature guide starts with a status note and ends with the endpoints you can use now. See [api/README.md](../api/README.md) for the full list of what's implemented, and the [roadmap](../PRODUCT.md#9-roadmap).
 
 PurrOS is an open-source, self-hosted operations platform (ERP) for businesses with 20–500 people. It covers people, scheduling, time, cash, inventory, ordering, sales, checklists, equipment, communication and reporting across one location or many. Every feature is optional, and other systems connect through a REST API.
 
@@ -10,7 +10,7 @@ PurrOS is an open-source, self-hosted operations platform (ERP) for businesses w
 |---|---|
 | Install PurrOS on my own server | [Installation](getting-started/installation.md) |
 | Set up email (SMTP) and file storage (S3) | [Email & file storage](getting-started/email-and-storage.md) |
-| Configure SSO and other settings | [Configuration](getting-started/configuration.md) |
+| Look up an environment variable, or the config and state directories | [Configuration](getting-started/configuration.md) |
 | Set up my company after installing | [First-run setup](getting-started/first-run-setup.md) |
 | Understand the words PurrOS uses | [Key concepts](getting-started/concepts.md) |
 | Connect my POS, online store or timeclock | [Integrations](integrations/README.md) |
@@ -19,9 +19,9 @@ PurrOS is an open-source, self-hosted operations platform (ERP) for businesses w
 ## Getting started
 
 - [Installation](getting-started/installation.md): requirements, Docker Compose, reverse proxy, first admin
-- [Configuration](getting-started/configuration.md): every environment variable
+- [Configuration](getting-started/configuration.md): every environment variable, and the `config/` and `state/` directories
 - [Email & file storage](getting-started/email-and-storage.md): SMTP, S3-compatible storage, backups to S3
-- [First-run setup](getting-started/first-run-setup.md): business type, features, locations, roles, inviting people
+- [First-run setup](getting-started/first-run-setup.md): setting up with the CLI today, and the planned setup wizard
 - [Key concepts](getting-started/concepts.md): the terms used throughout PurrOS
 
 ## Administration
@@ -60,7 +60,7 @@ PurrOS is an open-source, self-hosted operations platform (ERP) for businesses w
 ## Integrations
 
 - [Integrations overview](integrations/README.md): how integrations work, the manifest, registration
-- [Build an integration](integrations/building-an-integration.md): step-by-step tutorial with the SDK
+- [Build an integration](integrations/building-an-integration.md): step-by-step TypeScript tutorial
 - [Integration recipes](integrations/recipes.md): POS, online store, timeclock, HR, payroll, accounting, sensors
 
 ## Operations

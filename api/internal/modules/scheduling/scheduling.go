@@ -644,11 +644,11 @@ func Routes() []httpx.Route {
 					tz = time.UTC
 				}
 				dayStart := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, tz)
-				scheduled, err := listShifts(c, c.App.Pool, loc.ID, "", "", false, crud.Ptr(dayStart), crud.Ptr(dayStart.AddDate(0, 0, 1)), "", 10000)
+				scheduled, err := listShifts(c, c.App.Pool, loc.ID, "", "", false, new(dayStart), new(dayStart.AddDate(0, 0, 1)), "", 10000)
 				if err != nil {
 					return nil, err
 				}
-				for h := 0; h < 24; h++ {
+				for h := range 24 {
 					start := dayStart.Add(time.Duration(h) * time.Hour)
 					need := 0
 					for _, r := range rules {

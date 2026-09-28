@@ -54,14 +54,17 @@ Batch endpoints return `202 Accepted` with a result for every record:
 ```json
 {
   "batchId": "bat_01J8Z…",
+  "received": 3, "created": 1, "updated": 1, "rejected": 1,
   "results": [
-    { "externalId": "txn-88213", "status": "created", "id": "stx_01J8Z…" },
-    { "externalId": "txn-88214", "status": "updated", "id": "stx_01J8Z…" },
-    { "externalId": "txn-88215", "status": "rejected",
+    { "index": 0, "externalId": "txn-88213", "status": "created", "id": "stx_01J8Z…" },
+    { "index": 1, "externalId": "txn-88214", "status": "updated", "id": "stx_01J8Z…" },
+    { "index": 2, "externalId": "txn-88215", "status": "rejected",
       "errors": [{ "path": "tenders", "message": "Tender total does not match transaction total" }] }
   ]
 }
 ```
+
+A record's `status` is `created`, `updated`, `unchanged` (sent again with nothing new), `duplicate` or `rejected`. Accepted records can still carry `errors` as warnings, for example when they land on a closed business day.
 
 `202` means the records are **safely stored**. Stock, cash expectations and reports update a few seconds later in the background, so a busy till never waits. Rejected records aren't stored, so fix and re-send them.
 
@@ -154,21 +157,20 @@ PUT /api/v1/sales-orders/external/web-100482
 {
   "source": "web-store",
   "customer": { "externalId": "cust-5521", "name": "Alex Kim", "email": "alex@example.com" },
-  "fulfilmentLocationExternalId": "wh-main",
+  "locationExternalId": "wh-main",
   "lines": [ { "itemExternalId": "web-sku-991", "quantity": "3", "unitPrice": "19.99" } ],
   "shipping": { "method": "standard", "amount": "4.99", "address": { "line1": "12 High St", "city": "Springfield", "postalCode": "12345", "country": "US" } },
   "paymentStatus": "paid",
-  "total": "64.96",
   "currency": "USD"
 }
 ```
 
-Sending the same order again with changes (e.g. `"status": "cancelled"`) updates it.
+`locationExternalId` is the location that fulfils the order. Totals are calculated from the lines and shipping. Sending the same order again with changes (e.g. `"status": "cancelled"`) updates it.
 
 ## Checking what arrived
 
 - `GET /sales/transactions?source=pos:store-101&updatedSince=…` lists what PurrOS has stored.
-- **Settings → Integrations → *your integration*** shows batches received, rejected records, unmapped items and the integration's health messages.
+- `GET /sales/unmapped-items` lists POS items that aren't matched to a PurrOS item yet, and `purros integrations list` shows each integration's health and last heartbeat. *(A per-integration activity page in the web app is planned.)*
 - `POST /integrations/self/logs` lets your integration add its own notes, e.g. "Backfilled 2026-09-01 to 2026-09-26: 18,204 transactions".
 
 ## Backfilling history

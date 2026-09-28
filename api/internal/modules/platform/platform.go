@@ -4,25 +4,23 @@ package platform
 
 import (
 	"encoding/json"
-	"errors"
-	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/selectdev/purros/api/internal/catalog"
 	"github.com/selectdev/purros/api/internal/features"
 	"github.com/selectdev/purros/api/internal/httpx"
 	"github.com/selectdev/purros/api/internal/ids"
+	"github.com/selectdev/purros/api/internal/integration"
 )
 
 // Version is set at build time.
 var Version = "0.1.0-dev"
 
 type Me struct {
-	Type        string       `json:"type" doc:"integration or personal"`
-	KeyID       string       `json:"keyId"`
-	Integration *Integration `json:"integration,omitempty"`
-	UserID      string       `json:"userId,omitempty"`
-	Scopes      []string     `json:"scopes"`
+	Type        string                   `json:"type" doc:"integration or personal"`
+	KeyID       string                   `json:"keyId"`
+	Integration *integration.Integration `json:"integration,omitempty"`
+	UserID      string                   `json:"userId,omitempty"`
+	Scopes      []string                 `json:"scopes"`
 }
 
 type FeatureState struct {
@@ -34,21 +32,6 @@ type FeatureState struct {
 
 type List[T any] struct {
 	Data []T `json:"data"`
-}
-
-type Integration struct {
-	ID              string     `json:"id"`
-	Name            string     `json:"name"`
-	DisplayName     string     `json:"displayName"`
-	Version         string     `json:"version"`
-	Description     string     `json:"description"`
-	Homepage        string     `json:"homepage"`
-	Scopes          []string   `json:"scopes"`
-	Status          string     `json:"status"`
-	HealthStatus    *string    `json:"healthStatus"`
-	HealthMessage   *string    `json:"healthMessage"`
-	LastHeartbeatAt *time.Time `json:"lastHeartbeatAt"`
-	CreatedAt       time.Time  `json:"createdAt"`
 }
 
 type HealthInput struct {
@@ -66,18 +49,8 @@ type Accepted struct {
 	OK bool `json:"ok"`
 }
 
-func loadIntegration(c *httpx.Ctx) (Integration, error) {
-	var i Integration
-	err := c.App.Pool.QueryRow(c, `
-		SELECT id, name, display_name, version, description, homepage, scopes, status,
-		       health_status, health_message, last_heartbeat_at, created_at
-		FROM integrations WHERE id = $1`, c.Principal.IntegrationID).
-		Scan(&i.ID, &i.Name, &i.DisplayName, &i.Version, &i.Description, &i.Homepage, &i.Scopes, &i.Status,
-			&i.HealthStatus, &i.HealthMessage, &i.LastHeartbeatAt, &i.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return i, httpx.NotFound("Integration not found.")
-	}
-	return i, err
+func loadIntegration(c *httpx.Ctx) (integration.Integration, error) {
+	return integration.Get(c, c.App.Pool, c.Principal.IntegrationID)
 }
 
 func Routes() []httpx.Route {
@@ -140,7 +113,7 @@ func Routes() []httpx.Route {
 		},
 		{
 			Method: "GET", Path: "/integrations/self", Tag: "Integrations", Auth: httpx.AuthIntegration,
-			Summary: "The calling integration's registration", Response: Integration{},
+			Summary: "The calling integration's registration", Response: integration.Integration{},
 			Handler: func(c *httpx.Ctx) (any, error) { return loadIntegration(c) },
 		},
 		{
@@ -149,23 +122,7 @@ func Routes() []httpx.Route {
 			Description: "Secrets are returned decrypted. Only call this over TLS.",
 			Response:    map[string]any{},
 			Handler: func(c *httpx.Ctx) (any, error) {
-				var sealed []byte
-				err := c.App.Pool.QueryRow(c, `SELECT config_encrypted FROM integrations WHERE id = $1`,
-					c.Principal.IntegrationID).Scan(&sealed)
-				if err != nil {
-					return nil, err
-				}
-				cfg := map[string]any{}
-				if len(sealed) > 0 {
-					plain, err := c.App.Box.Open(sealed)
-					if err != nil {
-						return nil, err
-					}
-					if err := json.Unmarshal(plain, &cfg); err != nil {
-						return nil, err
-					}
-				}
-				return cfg, nil
+				return integration.Config(c, c.App.Pool, c.App.Box, c.Principal.IntegrationID)
 			},
 		},
 		{
@@ -185,7 +142,7 @@ func Routes() []httpx.Route {
 		},
 		{
 			Method: "POST", Path: "/integrations/self/logs", Tag: "Integrations", Auth: httpx.AuthIntegration,
-			Summary: "Add a log message shown in the admin UI", Body: LogInput{}, Response: Accepted{}, Status: 201,
+			Summary: "Add a log message to the integration's log", Body: LogInput{}, Response: Accepted{}, Status: 201,
 			Handler: func(c *httpx.Ctx) (any, error) {
 				var in LogInput
 				if err := c.Decode(&in); err != nil {

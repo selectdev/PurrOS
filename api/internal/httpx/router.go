@@ -149,7 +149,6 @@ type Router struct {
 
 func (rt *Router) Add(routes ...Route) {
 	for _, r := range routes {
-		r := r
 		if r.Status == 0 {
 			r.Status = http.StatusOK
 		}
