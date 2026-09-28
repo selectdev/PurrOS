@@ -1,0 +1,44 @@
+# PurrOS on Dokploy (https://dokploy.com).
+# Set the variables in Dokploy's Environment tab (Dokploy writes them to .env
+# next to this file) and add the domain in the Domains tab: service "api",
+# port 8080. See docs/getting-started/dokploy.md.
+services:
+  api:
+    build:
+      context: ./api
+      args:
+        VERSION: ${PURROS_VERSION:-dev}
+    env_file: .env
+    environment:
+      PURROS_LISTEN: ":8080"
+      DATABASE_URL: postgres://purros:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the Environment tab}@db:5432/purros?sslmode=disable
+      # Nightly backups into the state volume; set PURROS_BACKUP_DIR= (empty) to turn them off
+      PURROS_BACKUP_DIR: ${PURROS_BACKUP_DIR-/var/lib/purros/backups}
+    volumes:
+      - state:/var/lib/purros   # uploaded files and backups (PURROS_STATE_DIR)
+    expose:
+      - "8080"                  # reached through Dokploy's Traefik; no host port
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    # Only what the database needs: PURROS_SECRET never reaches this container.
+    environment:
+      POSTGRES_USER: purros
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the Environment tab}
+      POSTGRES_DB: purros
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U purros -d purros"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  state:

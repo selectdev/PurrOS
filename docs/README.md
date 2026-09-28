@@ -19,6 +19,7 @@ PurrOS is an open-source, self-hosted operations platform (ERP) for businesses w
 ## Getting started
 
 - [Installation](getting-started/installation.md): requirements, Docker Compose, reverse proxy, first admin
+- [Deploying on Dokploy](getting-started/dokploy.md): the Dokploy Compose file, environment, domain and first-time setup
 - [Configuration](getting-started/configuration.md): every environment variable, and the `config/` and `state/` directories
 - [Email & file storage](getting-started/email-and-storage.md): SMTP, S3-compatible storage, backups to S3
 - [First-run setup](getting-started/first-run-setup.md): setting up with the CLI today, and the planned setup wizard

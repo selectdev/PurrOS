@@ -14,6 +14,8 @@ PurrOS runs as two containers: **api** (the `purros` Go binary, which serves the
 
 Any Linux server or VM works. PurrOS also runs on macOS and Windows with Docker Desktop for evaluation, but that isn't recommended for production.
 
+> Deploying on **Dokploy**? Follow [Deploying on Dokploy](dokploy.md) instead: it uses `docker-compose.dokploy.yml` and Dokploy's Environment and Domains tabs.
+
 ## 1. Get the code
 
 ```bash

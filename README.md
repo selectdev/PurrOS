@@ -359,6 +359,8 @@ PURROS_BACKUP_DIR=/var/lib/purros/backups
 PURROS_BACKUP_PASSPHRASE=         # optional: encrypt backups
 ```
 
+On **Dokploy**, use `docker-compose.dokploy.yml` instead; see [Deploying on Dokploy](docs/getting-started/dokploy.md).
+
 Email and S3 are optional but recommended for production. See [Email & file storage](docs/getting-started/email-and-storage.md) for setup, testing and moving existing files to S3.
 
 ### 3. Start
