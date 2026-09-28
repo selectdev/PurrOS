@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -o /out/purros ./cmd/purros
 RUN mkdir -p /out/state/backups /out/state/files
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# debug-nonroot adds busybox `sh` so the Dokploy terminal can exec in and run `purros`.
+FROM gcr.io/distroless/static-debian12:debug-nonroot
 COPY --from=build /out/purros /usr/local/bin/purros
 # Uploaded files and backups live here; mount a volume on it (see docker-compose.yml).
 COPY --from=build --chown=65532:65532 /out/state /var/lib/purros

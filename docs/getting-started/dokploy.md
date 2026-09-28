@@ -70,7 +70,7 @@ Click **Deploy**. Dokploy builds the API image from `api/` and starts PostgreSQL
 
 ## 5. Run first-time setup
 
-The PurrOS image contains only the `purros` binary and no shell, so Dokploy's in-browser terminal can't open it. Run commands over SSH on the Dokploy server instead:
+Open the `api` service's **Terminal** in Dokploy and pick **sh** (the image has a minimal BusyBox shell, not bash), then run `purros setup` and `purros doctor`. Or run them over SSH on the Dokploy server:
 
 ```bash
 docker ps --filter name=api --format '{{.Names}}'     # find the container, e.g. purros-abc123-api-1
